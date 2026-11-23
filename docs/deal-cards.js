@@ -70,7 +70,7 @@ function dealPlot(deal, history) {
         (history.segments.length
           ? "Estimated open P&L. "
           : "Only the close is available. ") +
-        "Realized at close " +
+        "Final P&L at close " +
         cash(deal.pnl) +
         ". Use left and right arrows to inspect samples.",
     },
@@ -214,7 +214,11 @@ function renderDealCard(deal) {
   const result = span("div", "deal-result", "");
   result.append(
     span("strong", "pnl " + signClass(deal.pnl), cash(deal.pnl)),
-    span("span", "result-label", "Realized P&L"),
+    span(
+      "span",
+      "result-label",
+      deal.settled ? "Settlement P&L" : "Realized P&L",
+    ),
   );
   heading.append(result);
   const face = span("div", "deal-face", "");
@@ -262,7 +266,11 @@ function renderDealCard(deal) {
   time.dateTime = closeDate.toISOString();
   time.title = preciseCloseTime.format(closeDate);
   closed.append(
-    span("span", "", deal.dust ? "Closed with dust" : "Closed"),
+    span(
+      "span",
+      "",
+      deal.settled ? "Settled" : deal.dust ? "Closed with dust" : "Closed",
+    ),
     time,
   );
   dates.append(opened, closed);

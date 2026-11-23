@@ -91,7 +91,7 @@ def money_units(value):
     return round(value * UNIT)
 
 
-def evidence(legs, events):
+def evidence(legs, events, settlement=None, final_units=None):
     """Validate the whole market before using its intervening cash and share balances."""
     tokens = [r["token_id"] for r in legs]
     if len(tokens) == 2 and any(
@@ -163,6 +163,8 @@ def evidence(legs, events):
             )
         )
     close = max(r["last_event_at"] for r in legs)
+    if settlement:
+        close = max(close, settlement.closed)
     if (
         stake <= 0
         or intervals[0][0] != min(r["first_entry_at"] for r in legs)
@@ -175,17 +177,30 @@ def evidence(legs, events):
         for r in legs
     ):
         return
-    # Open dust basis and independently rounded public amounts bound the difference.
-    tolerance = sum(r["current_size"] + QUANTUM for r in legs) + Decimal(
-        "0.000001"
-    ) * len(events)
-    if abs(cash - sum(r["realized_pnl"] for r in legs)) > tolerance:
-        return
+    rounding = len(legs) * QUANTUM + Decimal("0.000001") * len(events)
+    if settlement:
+        redemption = sum(
+            size * settlement.payouts[token] for token, size in balances.items()
+        )
+        if (
+            abs(cash + redemption - Decimal(final_units) / UNIT)
+            > rounding + len(legs) * QUANTUM
+        ):
+            return
+    else:
+        tolerance = sum(r["current_size"] for r in legs) + rounding
+        if abs(cash - sum(r["realized_pnl"] for r in legs)) > tolerance:
+            return
     if intervals[-1][0] < close:
-        # Position bookkeeping can record a later close after only dust remains.
-        if any(abs(size) >= DUST for size in balances.values()):
+        # The last trade can precede a dust bookkeeping event or final settlement.
+        if not settlement and any(abs(size) >= DUST for size in balances.values()):
             return
         intervals.append((close, float(cash), tokens[0], 0.0, None))
+    if settlement:
+        i = bisect.bisect_left([point[0] for point in intervals], settlement.closed)
+        if 0 < i < len(intervals) and intervals[i][0] > settlement.closed:
+            _, base, token, qty, _ = intervals[i - 1]
+            intervals.insert(i, (settlement.closed, base, token, qty, None))
     return intervals, float(stake)
 
 
@@ -212,19 +227,25 @@ def compress(points, start, end):
     return kept
 
 
-def reconstruct(legs, events, prices):
+def reconstruct(legs, events, prices, *, settlement=None, final_units=None):
     start, end = (
         min(r["first_entry_at"] for r in legs),
         max(r["last_event_at"] for r in legs),
     )
-    loss = sum(r["realized_pnl"] for r in legs) < 0
+    if settlement:
+        end = max(end, settlement.closed)
+    loss = (
+        final_units < 0
+        if final_units is not None
+        else sum(r["realized_pnl"] for r in legs) < 0
+    )
     out = {
         "opened": start,
         "mood": "losing" if loss else "unrated",
         "coverage": "close",
         "segments": [],
     }
-    verified = evidence(legs, events)
+    verified = evidence(legs, events, settlement, final_units)
     if not verified:
         return out
     intervals, stake = verified
@@ -252,6 +273,11 @@ def reconstruct(legs, events, prices):
         intervals, intervals[1:]
     ):
         stop = following[0]
+        if settlement and t >= settlement.closed:
+            value = base + quantity * float(settlement.payouts[token])
+            mark(t, value)
+            mark(stop - 1, value)
+            continue
         if quantity < float(DUST):
             mark(t, base)
             mark(stop - 1, base)
@@ -305,11 +331,13 @@ def populate(jobs, wallet, cache):
     activity = activity_by_market(wallet)
 
     def process(job):
-        legs, deal = job
+        legs, deal, settlement = job
         deal["history"] = reconstruct(
             legs,
             activity[legs[0]["condition_id"]],
             lambda token, start, end: token_prices(token, start, end, cache),
+            settlement=settlement,
+            final_units=deal["pnl"],
         )
 
     with ThreadPoolExecutor(max_workers=4) as workers:

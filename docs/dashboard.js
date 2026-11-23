@@ -366,6 +366,7 @@ function filterList() {
     (r) =>
       r.market.toLocaleLowerCase().includes(term) &&
       (result === "all" ||
+        (result === "settled" && r.settled) ||
         (result === "win" && r.pnl > 0) ||
         (result === "loss" && r.pnl < 0) ||
         (result === "flat" && r.pnl === 0)),

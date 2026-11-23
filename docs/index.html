@@ -6,14 +6,14 @@
     <meta name="theme-color" content="#082e29" />
     <meta
       name="description"
-      content="Realized profits, ranked-buy results and the closed-deal ledger for Gilad’s Polymarket trading account."
+      content="Closed and settled market profits, ranked-buy results and the deal ledger for Gilad’s Polymarket trading account."
     />
     <title>האם הגלעד מליונר? · Gilad Markets</title>
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="dashboard.css?v=comments" />
     <script src="comments.js" defer></script>
-    <script src="deal-cards.js" defer></script>
-    <script src="dashboard.js?v=deal-moods" defer></script>
+    <script src="deal-cards.js?v=settlement" defer></script>
+    <script src="dashboard.js?v=settlement" defer></script>
   </head>
   <body>
     <a class="skip" href="#performance">Skip to performance</a>
@@ -37,14 +37,14 @@
         <div class="hero-text">
           <div class="kicker"><i></i> POLYMARKET BOT</div>
           <h1 id="title" lang="he" dir="rtl">האם הגלעד מליונר?</h1>
-          <p>Realized returns from Gilad’s trading account.</p>
+          <p>Returns from Gilad’s closed and settled markets.</p>
         </div>
       </section>
       <div id="notice" class="notice" role="status" hidden></div>
       <section class="stats" aria-label="Performance summary">
         <article class="stat">
           <div class="stat-top">
-            <span>Total realized P&amp;L</span
+            <span>Total closed P&amp;L</span
             ><span class="glyph" data-icon="wallet"></span>
           </div>
           <div class="big" id="total">—</div>
@@ -67,7 +67,7 @@
             ><span class="glyph" data-icon="book"></span>
           </div>
           <div class="big" id="count">—</div>
-          <p id="firstClose">Fully closed and dust-only markets</p>
+          <p id="firstClose">Includes dust and settled holdings</p>
         </article>
       </section>
       <div class="section-bar" id="performance">
@@ -86,7 +86,7 @@
           <div class="panel-head">
             <div>
               <h3>Cumulative profit</h3>
-              <p>Realized P&amp;L from closed deals</p>
+              <p>P&amp;L from closed and settled deals</p>
             </div>
             <div class="ranges" role="group" aria-label="Chart date range">
               <button type="button" data-days="7" aria-pressed="false">
@@ -105,12 +105,12 @@
               role="img"
               tabindex="0"
               id="plot"
-              aria-label="Cumulative realized profit, US dollars."
+              aria-label="Cumulative closed and settled profit, US dollars."
             ></svg>
             <div class="tip" id="tip" hidden></div>
           </div>
           <div class="chart-foot">
-            <span><i class="line-key"></i> Net realized P&amp;L</span
+            <span><i class="line-key"></i> Net closed P&amp;L</span
             ><span id="windowResult">—</span>
           </div>
         </div>
@@ -140,7 +140,7 @@
         <div class="panel-head">
           <div>
             <h2 id="ledger-title" tabindex="-1">Closed deals</h2>
-            <p id="ledgerDesc">Realized results by market</p>
+            <p id="ledgerDesc">Final results by market</p>
           </div>
           <div class="ledger-controls">
             <label class="search"
@@ -152,12 +152,13 @@
                 aria-label="Search markets"
             /></label>
             <label class="select"
-              ><span class="visually-hidden">Filter by result</span
+              ><span class="visually-hidden">Filter closed deals</span
               ><select id="result">
                 <option value="all">All results</option>
                 <option value="win">Profitable</option>
                 <option value="loss">Loss-making</option>
                 <option value="flat">Break-even</option>
+                <option value="settled">Settled holdings</option>
               </select></label
             >
           </div>
@@ -168,7 +169,7 @@
             P&amp;L</span
           >
           <span
-            ><i class="key-diamond" aria-hidden="true"></i>Realized at
+            ><i class="key-diamond" aria-hidden="true"></i>Final P&amp;L at
             close</span
           >
         </div>
@@ -225,16 +226,20 @@
       </div>
       <h3>What counts as a deal?</h3>
       <p>
-        Each deal groups all outcomes held in one Polymarket market. A market
-        closes when each outcome has fewer than 0.01 shares remaining. The close
-        time is the last recorded position event, shown in your local time zone.
+        Each deal groups all outcomes held in one market. It counts as closed
+        when every balance falls below 0.01 shares or Polymarket confirms the
+        final payouts. For positions held at settlement, we use the later of the
+        published market close and the last position event. All deal times are
+        shown in your local time zone.
       </p>
       <h3>How is profit calculated?</h3>
       <p>
-        We add Polymarket’s reported realized P&amp;L across the market’s
-        outcomes. Open-market marks, deposits, withdrawals and the estimated
-        value of dust are excluded. The account total includes any manual
-        activity in this trading account.
+        We add realized P&amp;L across both sides of each deal. For shares still
+        carried as open at confirmed settlement, we also include the final
+        payout minus their remaining cost. Losing shares pay $0 even if they
+        stay in the wallet. Each market counts once, including after redemption.
+        Live prices are used only in the history charts. The account total
+        includes manual activity.
       </p>
       <h3>Which deals used the latest method?</h3>
       <p id="methodNotes">Reading the deployed method…</p>
@@ -242,9 +247,9 @@
       <p>
         The blue line estimates P&amp;L from account cash flows and historical
         Polymarket prices while the deal was open. Complementary shares are
-        valued together at $1. The diamond marks the reported realized result.
-        Breaks in the line indicate missing prices. Hover, tap or use the arrow
-        keys on a chart to inspect its samples.
+        valued together at $1. The diamond marks the final deal result. Breaks
+        in the line indicate missing prices. Hover, tap or use the arrow keys on
+        a chart to inspect its samples.
       </p>
       <h3>How is the mood chosen?</h3>
       <p>

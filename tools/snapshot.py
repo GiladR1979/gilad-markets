@@ -12,6 +12,11 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+if __package__:
+    from .settlement import lookup
+else:
+    from settlement import lookup
+
 
 API = "https://data-api.polymarket.com/v2/positions"
 DUST = Decimal("0.01")
@@ -184,7 +189,9 @@ def matched(row, sizes):
     )
 
 
-def build(rows, method, start, sizes, latest, now, *, history_jobs=None):
+def build(
+    rows, method, start, sizes, latest, now, *, history_jobs=None, settlements=None
+):
     markets, tokens = collections.defaultdict(list), {}
     for row in rows:
         token = row["token_id"]
@@ -202,7 +209,13 @@ def build(rows, method, start, sizes, latest, now, *, history_jobs=None):
         markets[row["condition_id"]].append(row)
     deals = []
     for legs in markets.values():
-        if any(number(r["current_size"]) >= DUST for r in legs):
+        settlement = (settlements or {}).get(legs[0]["condition_id"])
+        if settlement and (
+            settlement.closed > now
+            or any(r["token_id"] not in settlement.payouts for r in legs)
+        ):
+            raise ValueError("Settlement identity or chronology mismatch")
+        if not settlement and any(number(r["current_size"]) >= DUST for r in legs):
             continue
         legs.sort(key=lambda row: (row["outcome_index"], row["token_id"]))
         last = max(int(r["last_event_at"]) for r in legs)
@@ -217,6 +230,16 @@ def build(rows, method, start, sizes, latest, now, *, history_jobs=None):
         pnl = sum(number(r["realized_pnl"]) for r in legs) * PNL_SCALE
         if pnl != pnl.to_integral_value():
             raise ValueError("Provider P&L precision changed")
+        if settlement:
+            # CLOSED legs already include their final result, even if a residual token still exists.
+            additional = sum(
+                number(r["current_size"]) * settlement.payouts[r["token_id"]]
+                - number(r["total_cost_usdc"])
+                for r in legs
+                if r["status"] != "CLOSED" and number(r["current_size"]) > 0
+            )
+            pnl += round(additional * PNL_SCALE)
+            last = max(last, settlement.closed)
         is_bot = all(matched(r, sizes) for r in legs)
         is_latest = (
             start is not None
@@ -238,11 +261,14 @@ def build(rows, method, start, sizes, latest, now, *, history_jobs=None):
                 legs=len(legs),
                 method=is_latest,
                 verified=is_bot,
-                dust=any(number(r["current_size"]) > 0 for r in legs),
+                dust=all(number(r["current_size"]) < DUST for r in legs)
+                and any(number(r["current_size"]) > 0 for r in legs),
             )
         )
+        if settlement:
+            deals[-1]["settled"] = True
         if history_jobs is not None:
-            history_jobs.append((legs, deals[-1]))
+            history_jobs.append((legs, deals[-1], settlement))
     deals.sort(key=lambda r: (-r["closed"], r["market"], r["pnl"]))
     return dict(
         version=1,
@@ -268,7 +294,14 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
         raise ValueError("Trading account history unavailable")
     history_jobs = []
     result = build(
-        rows, method, start, sizes, latest, int(time.time()), history_jobs=history_jobs
+        rows,
+        method,
+        start,
+        sizes,
+        latest,
+        int(time.time()),
+        history_jobs=history_jobs,
+        settlements=lookup(rows, DUST),
     )
     cache = (
         price_cache or Path(__file__).resolve().parents[1] / ".local" / "price-cache-v1"
