@@ -17,6 +17,7 @@ def github(exe, endpoint, *, body=None):
     result = subprocess.run(
         command,
         capture_output=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         timeout=60,
         input=json.dumps(body).encode() if body is not None else None,
     )

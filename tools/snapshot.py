@@ -31,6 +31,7 @@ def release_tag(repository, gh):
         [gh, "api", "--paginate", "--slurp", f"repos/{repository}/tags?per_page=100"],
         check=True,
         capture_output=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         timeout=45,
     )
     tags = [
