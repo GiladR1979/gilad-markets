@@ -12,7 +12,7 @@
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="dashboard.css?v=crash-time" />
     <script src="comments.js" defer></script>
-    <script src="deal-cards.js?v=crash-time" defer></script>
+    <script src="deal-cards.js?v=crash-end" defer></script>
     <script src="dashboard.js?v=crash-time" defer></script>
   </head>
   <body>
@@ -172,8 +172,8 @@
             P&amp;L</span
           >
           <span
-            ><i class="key-diamond" aria-hidden="true"></i>Close or latest
-            mark</span
+            ><i class="key-diamond" aria-hidden="true"></i>P&amp;L at chart
+            end</span
           >
         </div>
         <ol id="rows" aria-label="Market deals"></ol>
@@ -257,10 +257,10 @@
       <p>
         The ledger and cumulative chart date a losing deal to the first recorded
         price that met the 99% rule while the combined position was losing. The
-        chart attributes the deal’s reported P&amp;L to that time. The dashed
-        line on its card marks the observation. The card also shows the actual
-        close or latest mark. Losses without a recorded 99% drop use their close
-        time.
+        cumulative chart attributes the deal’s reported P&amp;L to that time.
+        The blue chart on the deal card ends at the first observed crash. The
+        card also shows the actual close or latest mark. Losses without a
+        recorded 99% drop use their close time.
       </p>
       <h3>Which deals used the latest method?</h3>
       <p id="methodNotes">Reading the deployed method…</p>
@@ -268,9 +268,11 @@
       <p>
         The blue line estimates P&amp;L from account cash flows and historical
         Polymarket prices while the deal was open. Complementary shares are
-        valued together at $1. The diamond marks the final result or the latest
-        provisional mark. Breaks in the line indicate missing prices. Hover, tap
-        or use the arrow keys on a chart to inspect its samples.
+        valued together at $1. For a recorded 99% crash, the diamond shows the
+        estimated P&amp;L at that moment when a price is available. Other charts
+        end at the close or latest mark. Breaks in the line indicate missing
+        prices. Hover, tap or use the arrow keys on a chart to inspect its
+        samples.
       </p>
       <h3>How is the mood chosen?</h3>
       <p>

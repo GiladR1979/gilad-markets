@@ -38,12 +38,35 @@ function plotScale(samples) {
 }
 
 function dealPlot(deal, history) {
-  const end = endpointTime(deal);
+  const crashed = deal.crashAt != null;
+  const end = deal.crashAt ?? endpointTime(deal);
   const start = history.opened ?? end;
   const duration = end - start;
-  const close = [duration, deal.pnl];
-  const samples = history.segments.flat().concat([close]);
-  const { low, high, ticks } = plotScale(samples);
+  let segments = history.segments;
+  let endValue = deal.pnl;
+  if (crashed) {
+    endValue = deal.crashPnl ?? null;
+    segments = [];
+    for (const segment of history.segments) {
+      const visible = segment.filter(([t]) => t <= duration);
+      if (!visible.length) continue;
+      const last = visible.at(-1);
+      if (last[0] === duration) {
+        endValue ??= last[1];
+        visible[visible.length - 1] = [duration, endValue];
+      } else if (endValue != null && segment.at(-1)[0] >= duration - 1) {
+        // A compressed segment spans the crash, or ends one second before exit.
+        visible.push([duration, endValue]);
+      }
+      segments.push(visible);
+    }
+  }
+  const samples = segments.flat().filter(([t]) => t !== duration);
+  samples.push([duration, endValue]);
+  const { low, high, ticks } = plotScale(samples.filter(([, v]) => v != null));
+  const endLabel = crashed ? "At crash" : deal.priceRule ? "Marked" : "Closed";
+  const endText =
+    endLabel + " · " + (endValue == null ? "P&L unavailable" : cash(endValue));
   const width = 400,
     height = 100,
     inset = 7;
@@ -68,11 +91,10 @@ function dealPlot(deal, history) {
       "aria-label":
         deal.market +
         ". " +
-        (history.segments.length
+        (segments.length
           ? "Estimated open P&L. "
           : "Only the endpoint is available. ") +
-        (deal.priceRule ? "Provisional P&L " : "Final P&L at close ") +
-        cash(deal.pnl) +
+        endText +
         ". Use left and right arrows to inspect samples.",
     },
     field,
@@ -93,7 +115,7 @@ function dealPlot(deal, history) {
       chart,
     );
   }
-  for (const segment of history.segments) {
+  for (const segment of segments) {
     if (!segment.length) continue;
     const first = segment[0];
     if (segment.length === 1) {
@@ -120,14 +142,14 @@ function dealPlot(deal, history) {
     );
     svg("path", { class: "sample-line", d: path }, chart);
   }
-  if (deal.crashAt != null) {
-    const when = x(deal.crashAt - start);
+  const endX = x(duration);
+  if (crashed) {
     const line = svg(
       "line",
       {
         class: "crash-guide",
-        x1: when,
-        x2: when,
+        x1: endX,
+        x2: endX,
         y1: inset,
         y2: height - inset,
       },
@@ -141,16 +163,16 @@ function dealPlot(deal, history) {
         preciseCloseTime.format(deal.crashAt * 1000),
     );
   }
-  const cx = x(close[0]),
-    cy = y(close[1]);
-  svg(
-    "path",
-    {
-      class: "close-diamond",
-      d: "M" + cx + "," + (cy - 5) + " l5,5 -5,5 -5,-5 Z",
-    },
-    chart,
-  );
+  if (endValue != null) {
+    svg(
+      "path",
+      {
+        class: "close-diamond",
+        d: "M" + endX + "," + (y(endValue) - 5) + " l5,5 -5,5 -5,-5 Z",
+      },
+      chart,
+    );
+  }
   const cursor = svg(
     "circle",
     { class: "sample-cursor", r: 4, visibility: "hidden" },
@@ -164,17 +186,14 @@ function dealPlot(deal, history) {
     active = Math.max(0, Math.min(index, samples.length - 1));
     const [t, value] = samples[active];
     cursor.setAttribute("cx", x(t));
-    cursor.setAttribute("cy", y(value));
-    cursor.setAttribute("visibility", "visible");
+    if (value != null) cursor.setAttribute("cy", y(value));
+    cursor.setAttribute("visibility", value == null ? "hidden" : "visible");
+    const atEnd = active === samples.length - 1;
+    const formatter = crashed && atEnd ? preciseCloseTime : localCloseTime;
     readout.textContent =
-      (active === samples.length - 1
-        ? deal.priceRule
-          ? "Marked "
-          : "Closed "
-        : "Estimate ") +
-      cash(value) +
+      (atEnd ? endText : "Estimate " + cash(value)) +
       " · " +
-      localCloseTime.format((start + t) * 1000);
+      formatter.format((start + t) * 1000);
     readout.hidden = false;
   }
   function nearest(event) {
@@ -285,17 +304,27 @@ function renderDealCard(deal) {
   top.append(heading, face);
 
   const info = span("div", "deal-chart-head", "");
-  info.append(span("span", "plot-name", "P&L history"));
+  info.append(
+    span(
+      "span",
+      "plot-name",
+      deal.crashAt != null ? "P&L through crash" : "P&L history",
+    ),
+  );
   const coverage =
     h.coverage === "full"
-      ? "Max pullback " +
+      ? (deal.crashAt != null ? "Full-deal pullback " : "Max pullback ") +
         h.pullback.toLocaleString(undefined, { maximumFractionDigits: 2 }) +
         "%"
       : h.coverage === "partial"
         ? "Partial history"
-        : deal.priceRule
-          ? "Current mark only"
-          : "Close only";
+        : deal.crashAt != null
+          ? deal.crashPnl == null
+            ? "Crash time only"
+            : "Crash mark only"
+          : deal.priceRule
+            ? "Current mark only"
+            : "Close only";
   const detail = span("span", "plot-detail", coverage);
   detail.title =
     h.coverage === "full"

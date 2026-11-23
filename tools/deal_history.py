@@ -256,7 +256,7 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
 
 
 def first_crash(intervals, tape, settlement):
-    """Earliest observed 99% price loss while the filled market was underwater."""
+    """Return the first underwater 99% crash and its P&L in units if observable."""
 
     for position, following in pairwise(intervals):
         if settlement and position.at >= settlement.closed:
@@ -292,9 +292,14 @@ def first_crash(intervals, tape, settlement):
             ):
                 continue
             # Without a fresh opposite quote, require a loss even at its maximum payout.
-            exposed_price = live.get(position.exposed, Decimal(1))
-            if money_units(position.base + position.excess * exposed_price) < 0:
-                return at
+            price = live.get(position.exposed)
+            if price is None and position.excess:
+                if money_units(position.base + position.excess) < 0:
+                    return at, None
+                continue
+            pnl = money_units(position.base + position.excess * (price or 0))
+            if pnl < 0:
+                return at, pnl
     return None
 
 
@@ -359,7 +364,7 @@ def reconstruct(
     if loss:
         crossed = first_crash(intervals, tape, settlement)
         if crossed is not None:
-            out["crashAt"] = crossed
+            out["crashAt"], out["crashPnl"] = crossed
     segments = []
     segment = []
     complete = True
@@ -441,12 +446,22 @@ def retain_crash_times(jobs, path):
         db.execute("""CREATE TABLE IF NOT EXISTS crossings (
             market TEXT NOT NULL, opened INTEGER NOT NULL, observed INTEGER NOT NULL,
             PRIMARY KEY (market, opened))""")
+        db.execute("""CREATE TABLE IF NOT EXISTS crossing_marks (
+            market TEXT NOT NULL, opened INTEGER NOT NULL, observed INTEGER NOT NULL,
+            pnl INTEGER NOT NULL, PRIMARY KEY (market, opened, observed))""")
         for legs, deal, _ in jobs:
             if deal["pnl"] >= 0:
                 continue
             history = deal["history"]
             key = (legs[0]["condition_id"], history["opened"])
             observed = history.pop("crashAt", deal.get("markedAt"))
+            pnl = history.pop("crashPnl", None)
+            if (
+                pnl is None
+                and observed is not None
+                and observed == deal.get("markedAt")
+            ):
+                pnl = deal["pnl"]
             end = deal.get("markedAt", deal.get("closed"))
             if observed is not None and history["opened"] <= observed <= end:
                 db.execute(
@@ -459,6 +474,18 @@ def retain_crash_times(jobs, path):
             ).fetchone()
             if saved and history["opened"] <= saved[0] <= end:
                 deal["crashAt"] = saved[0]
+                crash_key = (*key, saved[0])
+                if observed == saved[0] and pnl is not None:
+                    db.execute(
+                        "INSERT OR IGNORE INTO crossing_marks VALUES (?,?,?,?)",
+                        (*crash_key, pnl),
+                    )
+                mark = db.execute(
+                    "SELECT pnl FROM crossing_marks WHERE market=? AND opened=? AND observed=?",
+                    crash_key,
+                ).fetchone()
+                if mark:
+                    deal["crashPnl"] = mark[0]
 
 
 def populate(jobs, wallet, cache):

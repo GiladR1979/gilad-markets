@@ -54,6 +54,7 @@ def test_trigger_uses_actual_entry_at_the_time_and_uncompressed_quotes():
     # The first lot lost only 98% at t=120. After the second fill, entry is 0.30.
     h = reconstruct([leg], events, lambda *_: tape, final_units=-59800)
     assert h["crashAt"] == 237
+    assert h["crashPnl"] == -59400
 
 
 def test_profitable_complete_set_and_earlier_unhedged_loss():
@@ -67,7 +68,10 @@ def test_profitable_complete_set_and_earlier_unhedged_loss():
     assert first_crash([hedged, end], tape, None) is None
     exposed = holding(90, "-5", "a", "10", {"a": ".5"}, {"a": ".5"})
     assert first_crash([exposed, hedged, end], tape, None) is None
-    assert first_crash([exposed, hedged._replace(at=135), end], tape, None) == 126
+    assert first_crash([exposed, hedged._replace(at=135), end], tape, None) == (
+        126,
+        -49950,
+    )
 
 
 def test_trigger_on_smaller_leg_checks_the_filled_hedge_at_that_instant():
@@ -81,14 +85,23 @@ def test_trigger_on_smaller_leg_checks_the_filled_hedge_at_that_instant():
         else ([150, 455], [0.99, 0.25])
     )
     # Profitable at 150, quote for the exposed side is stale at 410, negative when the hedge reprices at 455.
-    assert first_crash([position, end], tape, None) == 455
+    assert first_crash([position, end], tape, None) == (455, -2500)
+
+
+def test_stale_exposed_quote_can_prove_a_loss_without_valuing_it():
+    pos = holding(100, "-3", "b", "2", {"a": ".4", "b": ".6"}, {"b": ".6"})
+    end = holding(600, "0", "b", "0")
+    tape = lambda token: ([500], [0.001]) if token == "a" else ([], [])
+    assert first_crash([pos, end], tape, None) == (500, None)
+    paired = pos._replace(excess=Decimal(0))
+    assert first_crash([paired, end], tape, None) == (500, -30000)
 
 
 def test_last_sale_can_trigger_but_marks_after_exit_cannot():
     pos = holding(100, "-2", "a", "4", {"a": ".5"}, {"a": ".5"})
     end = holding(150, "0", "a", "0", sells={"a": ".004"})
     tape = lambda token: ([120, 160], [0.4, 0.001])
-    assert first_crash([pos, end], tape, None) == 150
+    assert first_crash([pos, end], tape, None) == (150, -19840)
     assert first_crash([pos, end._replace(sells={})], tape, None) is None
 
 
@@ -99,13 +112,16 @@ def test_first_live_observation_survives_refresh_and_final_close(tmp_path):
         h = {"opened": opened}
         if "historical" in fields:
             h["crashAt"] = fields.pop("historical")
+            h["crashPnl"] = fields.pop("value", None)
         deal = {"pnl": pnl, "history": h, **fields}
         retain_crash_times([([{"condition_id": "m"}], deal, None)], path)
-        return deal.get("crashAt")
+        return deal.get("crashAt"), deal.get("crashPnl")
 
-    assert publish(-100, 100, markedAt=190) == 190
-    assert publish(-104, 100, markedAt=240) == 190
-    assert publish(-105, 100, closed=310, historical=175) == 175
-    assert publish(-105, 100, closed=330) == 175
-    assert publish(100, 100, closed=330) is None
-    assert publish(-100, 400, closed=500) is None
+    assert publish(-100, 100, markedAt=190) == (190, -100)
+    assert publish(-104, 100, markedAt=240) == (190, -100)
+    assert publish(-105, 100, closed=310, historical=175) == (175, None)
+    assert publish(-99, 100, markedAt=320) == (175, None)
+    assert publish(-105, 100, closed=330, historical=175, value=-93) == (175, -93)
+    assert publish(-105, 100, closed=330) == (175, -93)
+    assert publish(100, 100, closed=330) == (None, None)
+    assert publish(-100, 400, closed=500) == (None, None)
