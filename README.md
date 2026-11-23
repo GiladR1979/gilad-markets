@@ -10,6 +10,8 @@ Every counted deal gets an inline chart and mood portrait during the scheduled r
 
 The browser receives market names, localizable timestamps, results and derived chart data. The host-side exporter opens SQLite read-only and reads both public position views. The publisher checks every 15 minutes, updates the snapshot when results or histories change, and refreshes its timestamp at least every six hours while the host and data services are available. GitHub Pages may take a few minutes to serve a new version.
 
+For negative results, both the ledger and cumulative chart use the earliest verified 99% price-loss observation. Historical replay uses the average entry, filled hedge and net market value at the time of each observation. The publisher also saves live observations in its local SQLite file so refreshes and redemption retain the first timestamp. The public `crashAt` field records this time separately from `closed` and `markedAt`. A loss with no earlier evidence stays at its recorded close.
+
 ### Moderating comments
 
 Visitors post in the [public comment thread](https://github.com/GiladR1979/gilad-markets/issues/1). To approve a reply for the dashboard, react to that reply with 👍 from the repository owner's account. Remove your reaction, hide the reply, or delete it to take it off the dashboard. If someone edits an approved comment, remove and reapply your 👍 after reviewing the new text. The same 15-minute publisher checks comment approvals independently of the trading snapshot. It writes the approved comment text, GitHub username and posting time to the public feed.

@@ -882,6 +882,28 @@ select,
   line-height: 1.38;
   font-variant-numeric: tabular-nums;
 }
+.crash-guide {
+  stroke: #a74e35;
+  stroke-width: 1.4;
+  stroke-dasharray: 3 3;
+}
+.crash-clock {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border-inline-start: 2px dashed #a74e35;
+  background: #fbf3ef;
+  color: #773c2b;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+.crash-clock span {
+  font-weight: 650;
+}
 .deal-dates > div:last-child {
   text-align: right;
 }

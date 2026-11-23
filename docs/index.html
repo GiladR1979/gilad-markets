@@ -10,10 +10,10 @@
     />
     <title>האם הגלעד מליונר? · Gilad Markets</title>
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="dashboard.css?v=price-rule" />
+    <link rel="stylesheet" href="dashboard.css?v=crash-time" />
     <script src="comments.js" defer></script>
-    <script src="deal-cards.js?v=price-rule" defer></script>
-    <script src="dashboard.js?v=price-rule" defer></script>
+    <script src="deal-cards.js?v=crash-time" defer></script>
+    <script src="dashboard.js?v=crash-time" defer></script>
   </head>
   <body>
     <a class="skip" href="#performance">Skip to performance</a>
@@ -158,7 +158,8 @@
                 <option value="win">Profitable</option>
                 <option value="loss">Loss-making</option>
                 <option value="flat">Break-even</option>
-                <option value="provisional">99% price losses</option>
+                <option value="crash">99% price losses</option>
+                <option value="provisional">Open provisional losses</option>
                 <option value="final">Closed &amp; settled</option>
                 <option value="settled">Settled holdings</option>
               </select></label
@@ -251,6 +252,15 @@
         are valued at their current price. Pending orders provide no offset.
         Each refresh checks the rule again. A recovery removes the provisional
         loss, and a close replaces it with the final result.
+      </p>
+      <h3>When is a loss shown?</h3>
+      <p>
+        The ledger and cumulative chart date a losing deal to the first recorded
+        price that met the 99% rule while the combined position was losing. The
+        chart attributes the deal’s reported P&amp;L to that time. The dashed
+        line on its card marks the observation. The card also shows the actual
+        close or latest mark. Losses without a recorded 99% drop use their close
+        time.
       </p>
       <h3>Which deals used the latest method?</h3>
       <p id="methodNotes">Reading the deployed method…</p>

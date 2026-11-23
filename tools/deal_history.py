@@ -5,15 +5,17 @@ import gzip
 import hashlib
 import json
 import os
+import sqlite3
 import tempfile
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from decimal import Decimal
-from itertools import groupby
+from itertools import groupby, pairwise
+from typing import NamedTuple
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-
 
 UNIT = 10_000
 GAP = 240
@@ -93,6 +95,16 @@ def money_units(value):
     return round(value * UNIT)
 
 
+class Inventory(NamedTuple):
+    at: int
+    base: Decimal  # cash flows plus the $1 value of each filled complementary pair
+    exposed: str
+    excess: Decimal
+    fills: dict
+    entries: dict  # contemporaneous average entry of each non-dust holding
+    sells: dict
+
+
 def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
     """Validate the whole market before using its intervening cash and share balances."""
     tokens = [r["token_id"] for r in legs]
@@ -106,11 +118,14 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
     cash, stake = Decimal(0), Decimal(0)
     balances = dict.fromkeys(tokens, Decimal(0))
     purchased = balances.copy()
+    averages = dict.fromkeys(tokens)
     intervals = []
     for t, batch in groupby(
         sorted(events, key=lambda e: e["timestamp"]), key=lambda e: e["timestamp"]
     ):
         trade_prices = {}
+        sales = {}
+        added, removed = set(), set()
         for event in batch:
             kind, token = event["type"], event.get("token_id")
             size, amount = Decimal(event["size"]), Decimal(event["usdc_size"])
@@ -122,17 +137,30 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
                 and event["side"] in {"BUY", "SELL"}
             ):
                 buy = event["side"] == "BUY"
+                price = Decimal(str(event["price"]))
+                if not 0 <= price <= 1 or size <= 0:
+                    return
+                if buy:
+                    prior = balances[token]
+                    if prior <= 0:
+                        averages[token] = price
+                    elif averages[token] is not None:
+                        averages[token] = (averages[token] * prior + price * size) / (
+                            prior + size
+                        )
+                    added.add(token)
+                else:
+                    sales[token] = min(price, sales.get(token, price))
+                    removed.add(token)
                 balances[token] += size if buy else -size
                 cash += -amount if buy else amount
                 if buy:
                     purchased[token] += size
                     stake += amount
-                price = float(event["price"])
-                if not 0 <= price <= 1:
-                    return
                 trade_prices[token] = price
             elif kind == "REDEEM" and token in balances:
                 balances[token] -= size
+                removed.add(token)
                 cash += amount
             elif kind in {"MERGE", "SPLIT"} and len(tokens) == 2:
                 if size != amount:
@@ -142,6 +170,10 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
                     balances[key] += size if split else -size
                     if split:
                         purchased[key] += size
+                        averages[key] = None  # a split prices the pair, not either side
+                        added.add(key)
+                    else:
+                        removed.add(key)
                 cash += -amount if split else amount
                 if split:
                     stake += amount
@@ -149,20 +181,22 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
                 return
         if min(balances.values()) < -QUANTUM:
             return
+        for token in added & removed:
+            # Same-second mixed fills have no intra-second ordering in the activity API.
+            averages[token] = None
         # Matching binary shares are worth their $1 complete-set redemption.
         paired = (
             max(Decimal(0), min(balances.values())) if len(tokens) == 2 else Decimal(0)
         )
         exposed = max(balances, key=balances.get)
         residual = max(Decimal(0), balances[exposed] - paired)
+        entries = {
+            key: averages[key]
+            for key in tokens
+            if balances[key] >= DUST and averages[key]
+        }
         intervals.append(
-            (
-                t,
-                float(cash + paired),
-                exposed,
-                float(residual),
-                trade_prices.get(exposed),
-            )
+            Inventory(t, cash + paired, exposed, residual, trade_prices, entries, sales)
         )
     close = max(r["last_event_at"] for r in legs)
     if settlement:
@@ -211,13 +245,57 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
             and any(abs(size) >= DUST for size in balances.values())
         ):
             return
-        intervals.append((close, float(cash), tokens[0], 0.0, None))
+        intervals.append(Inventory(close, cash, tokens[0], Decimal(0), {}, {}, {}))
     if settlement:
         i = bisect.bisect_left([point[0] for point in intervals], settlement.closed)
         if 0 < i < len(intervals) and intervals[i][0] > settlement.closed:
-            _, base, token, qty, _ = intervals[i - 1]
-            intervals.insert(i, (settlement.closed, base, token, qty, None))
+            intervals.insert(
+                i, intervals[i - 1]._replace(at=settlement.closed, fills={}, sells={})
+            )
     return intervals, float(stake)
+
+
+def first_crash(intervals, tape, settlement):
+    """Earliest observed 99% price loss while the filled market was underwater."""
+
+    for position, following in pairwise(intervals):
+        if settlement and position.at >= settlement.closed:
+            break
+        if position.base >= 0 or not position.entries:
+            continue
+        latest = {}
+        updates = defaultdict(dict)
+        for token in position.entries.keys() | {position.exposed}:
+            times, prices = tape(token)
+            i = bisect.bisect_left(times, position.at)
+            j = bisect.bisect_left(times, following.at)
+            if i and position.at - times[i - 1] <= GAP:
+                latest[token] = (times[i - 1], Decimal(str(prices[i - 1])))
+            for idx in range(i, j):
+                updates[times[idx]][token] = Decimal(str(prices[idx]))
+        updates[position.at].update(position.fills)
+        # A liquidating sale or final payout also prices the pre-exit inventory.
+        boundary = following.sells
+        if settlement and following.at == settlement.closed:
+            boundary = settlement.payouts
+        if boundary:
+            updates[following.at].update(boundary)
+        for at in sorted(updates):
+            for token, price in updates[at].items():
+                latest[token] = (at, price)
+            live = {
+                token: px for token, (stamp, px) in latest.items() if at - stamp <= GAP
+            }
+            if not any(
+                token in live and live[token] * 100 <= entry
+                for token, entry in position.entries.items()
+            ):
+                continue
+            # Without a fresh opposite quote, require a loss even at its maximum payout.
+            exposed_price = live.get(position.exposed, Decimal(1))
+            if money_units(position.base + position.excess * exposed_price) < 0:
+                return at
+    return None
 
 
 def compress(points, start, end):
@@ -271,6 +349,17 @@ def reconstruct(
     intervals, stake = verified
     out["stake"] = money_units(stake)
     tapes = {}
+
+    def tape(token):
+        if token not in tapes:
+            points = prices(token, start, end)
+            tapes[token] = ([p[0] for p in points], [p[1] for p in points])
+        return tapes[token]
+
+    if loss:
+        crossed = first_crash(intervals, tape, settlement)
+        if crossed is not None:
+            out["crashAt"] = crossed
     segments = []
     segment = []
     complete = True
@@ -289,10 +378,11 @@ def reconstruct(
         else:
             segment.append((t, value))
 
-    for (t, base, token, quantity, fill_price), following in zip(
-        intervals, intervals[1:]
-    ):
-        stop = following[0]
+    for position, following in pairwise(intervals):
+        t, token = position.at, position.exposed
+        base, quantity = float(position.base), float(position.excess)
+        fill_price = position.fills.get(token)
+        stop = following.at
         if settlement and t >= settlement.closed:
             value = base + quantity * float(settlement.payouts[token])
             mark(t, value)
@@ -302,15 +392,12 @@ def reconstruct(
             mark(t, base)
             mark(stop - 1, base)
             continue
-        if token not in tapes:
-            tape = prices(token, start, end)
-            tapes[token] = ([p[0] for p in tape], [p[1] for p in tape])
-        times, values = tapes[token]
+        times, values = tape(token)
         i, j = bisect.bisect_left(times, t), bisect.bisect_left(times, stop)
         observed = None
         if fill_price is not None:
             observed = t
-            mark(t, base + quantity * fill_price)
+            mark(t, base + quantity * float(fill_price))
         elif i and times[i - 1] >= t - GAP:
             observed = times[i - 1]
             mark(t, base + quantity * values[i - 1])
@@ -347,6 +434,33 @@ def reconstruct(
     return out
 
 
+def retain_crash_times(jobs, path):
+    """A live observation stays usable after a refresh, redemption, or price-tape gap."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with closing(sqlite3.connect(path, timeout=15)) as db, db:
+        db.execute("""CREATE TABLE IF NOT EXISTS crossings (
+            market TEXT NOT NULL, opened INTEGER NOT NULL, observed INTEGER NOT NULL,
+            PRIMARY KEY (market, opened))""")
+        for legs, deal, _ in jobs:
+            if deal["pnl"] >= 0:
+                continue
+            history = deal["history"]
+            key = (legs[0]["condition_id"], history["opened"])
+            observed = history.pop("crashAt", deal.get("markedAt"))
+            end = deal.get("markedAt", deal.get("closed"))
+            if observed is not None and history["opened"] <= observed <= end:
+                db.execute(
+                    """INSERT INTO crossings VALUES (?,?,?) ON CONFLICT(market,opened)
+                    DO UPDATE SET observed=MIN(observed, excluded.observed)""",
+                    (*key, observed),
+                )
+            saved = db.execute(
+                "SELECT observed FROM crossings WHERE market=? AND opened=?", key
+            ).fetchone()
+            if saved and history["opened"] <= saved[0] <= end:
+                deal["crashAt"] = saved[0]
+
+
 def populate(jobs, wallet, cache):
     activity = activity_by_market(wallet)
 
@@ -366,3 +480,4 @@ def populate(jobs, wallet, cache):
 
     with ThreadPoolExecutor(max_workers=4) as workers:
         list(workers.map(process, jobs))
+    retain_crash_times(jobs, cache.parent / "observed-price-loss-v1.sqlite3")

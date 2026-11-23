@@ -38,7 +38,7 @@ function plotScale(samples) {
 }
 
 function dealPlot(deal, history) {
-  const end = resultTime(deal);
+  const end = endpointTime(deal);
   const start = history.opened ?? end;
   const duration = end - start;
   const close = [duration, deal.pnl];
@@ -119,6 +119,27 @@ function dealPlot(deal, history) {
       chart,
     );
     svg("path", { class: "sample-line", d: path }, chart);
+  }
+  if (deal.crashAt != null) {
+    const when = x(deal.crashAt - start);
+    const line = svg(
+      "line",
+      {
+        class: "crash-guide",
+        x1: when,
+        x2: when,
+        y1: inset,
+        y2: height - inset,
+      },
+      chart,
+    );
+    svg(
+      "title",
+      {},
+      line,
+      "99% drop first observed · " +
+        preciseCloseTime.format(deal.crashAt * 1000),
+    );
   }
   const cx = x(close[0]),
     cy = y(close[1]);
@@ -294,7 +315,7 @@ function renderDealCard(deal) {
     ),
   );
   const closed = span("div", "", "");
-  const closeDate = new Date(resultTime(deal) * 1000);
+  const closeDate = new Date(endpointTime(deal) * 1000);
   const time = span("time", "", localCloseTime.format(closeDate));
   time.dateTime = closeDate.toISOString();
   time.title = preciseCloseTime.format(closeDate);
@@ -313,6 +334,16 @@ function renderDealCard(deal) {
     time,
   );
   dates.append(opened, closed);
-  card.append(top, info, dealPlot(deal, h), dates);
+  card.append(top, info, dealPlot(deal, h));
+  if (deal.crashAt != null) {
+    const crossing = span("div", "crash-clock", "");
+    const date = new Date(deal.crashAt * 1000);
+    const observed = span("time", "", localCloseTime.format(date));
+    observed.dateTime = date.toISOString();
+    observed.title = preciseCloseTime.format(date);
+    crossing.append(span("span", "", "99% drop first observed"), observed);
+    card.append(crossing);
+  }
+  card.append(dates);
   return card;
 }

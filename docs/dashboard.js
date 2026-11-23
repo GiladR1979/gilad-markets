@@ -83,7 +83,8 @@ function setMoney(id, amount) {
   if (signClass(amount)) el.classList.add(signClass(amount));
 }
 const sum = (rows) => rows.reduce((total, r) => total + r.pnl, 0);
-const resultTime = (row) => row.markedAt ?? row.closed;
+const endpointTime = (row) => row.markedAt ?? row.closed;
+const resultTime = (row) => row.crashAt ?? endpointTime(row);
 function updateSummary() {
   const latest = results.filter((r) => r.method);
   const marked = data.provisional ?? [];
@@ -246,6 +247,12 @@ function draw() {
   const ticks = intraday
     ? maxTicks
     : Math.min(maxTicks, Math.floor(duration / day) + 1);
+  const tickDate = new Intl.DateTimeFormat(
+    undefined,
+    intraday
+      ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }
+      : { month: "short", day: "numeric" },
+  );
   for (let i = 0; i < ticks; i++) {
     const t = start + (i * (end - start)) / (ticks - 1);
     svg(
@@ -256,12 +263,7 @@ function draw() {
         "text-anchor": i === 0 ? "start" : i === ticks - 1 ? "end" : "middle",
       },
       plot,
-      dateAt(
-        t,
-        intraday
-          ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }
-          : { month: "short", day: "numeric" },
-      ),
+      tickDate.format(t * 1000),
     );
   }
   const path =
@@ -323,8 +325,7 @@ function inspect(index) {
   hair.setAttribute("x2", px);
   ball.setAttribute("cx", px);
   ball.setAttribute("cy", py);
-  tip.textContent =
-    dateAt(p.t, { month: "short", day: "numeric" }) + " · " + cash(p.v);
+  tip.textContent = localCloseTime.format(p.t * 1000) + " · " + cash(p.v);
   tip.hidden = false;
   tip.style.left =
     Math.max(0, Math.min(w - tip.offsetWidth, px - tip.offsetWidth / 2)) + "px";
@@ -381,6 +382,7 @@ function filterList() {
     (r) =>
       r.market.toLocaleLowerCase().includes(term) &&
       (result === "all" ||
+        (result === "crash" && r.crashAt != null) ||
         (result === "provisional" && r.markedAt != null) ||
         (result === "final" && r.closed != null) ||
         (result === "settled" && r.settled) ||
