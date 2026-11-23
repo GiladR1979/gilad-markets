@@ -349,39 +349,7 @@ function renderList() {
   const list = byId("rows");
   list.replaceChildren();
   list.start = page * pageSize + 1;
-  for (const r of items) {
-    const li = span("li", "deal-grid deal", "");
-    const market = span("div", "market", "");
-    market.append(
-      span("div", "market-name", r.market),
-      span(
-        "div",
-        "deal-meta",
-        r.legs +
-          (r.legs === 1 ? " outcome" : " outcomes") +
-          (r.dust ? " · Dust closed" : ""),
-      ),
-    );
-    const closedAt = new Date(r.closed * 1000);
-    const time = span("time", "", localCloseTime.format(closedAt));
-    time.dateTime = closedAt.toISOString();
-    time.title = preciseCloseTime.format(closedAt);
-    const method = span("div", "method-cell", "");
-    method.append(
-      span(
-        "span",
-        r.method ? "method-tag" : "",
-        r.method ? data.tag : r.verified ? "Bot ledger" : "Account history",
-      ),
-    );
-    li.append(
-      market,
-      time,
-      method,
-      span("span", "pnl " + signClass(r.pnl), cash(r.pnl)),
-    );
-    list.append(li);
-  }
+  for (const deal of items) list.append(renderDealCard(deal));
   if (!items.length)
     list.append(span("li", "empty", "No closed deals match these filters."));
   byId("prev").disabled = page === 0;
@@ -417,14 +385,14 @@ function changeScope() {
 byId("scope").addEventListener("change", changeScope);
 byId("search").addEventListener("input", filterList);
 byId("result").addEventListener("change", filterList);
-byId("prev").addEventListener("click", () => {
-  page--;
+function turnPage(delta) {
+  page += delta;
   renderList();
-});
-byId("next").addEventListener("click", () => {
-  page++;
-  renderList();
-});
+  byId("ledger-title").focus({ preventScroll: true });
+  byId("ledger").scrollIntoView({ block: "start", behavior: "instant" });
+}
+byId("prev").addEventListener("click", () => turnPage(-1));
+byId("next").addEventListener("click", () => turnPage(1));
 for (const button of document.querySelectorAll("[data-days]"))
   button.addEventListener("click", () => {
     days = Number(button.dataset.days);

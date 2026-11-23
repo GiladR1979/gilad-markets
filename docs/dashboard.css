@@ -537,64 +537,295 @@ select,
   font-size: 0.88rem;
   height: 36px;
 }
-.deal-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 170px 132px 112px;
-  gap: 16px;
-  align-items: center;
-  padding: 13px 24px;
-}
-.table-head {
-  background: #f2f4ed;
-  border-block: 1px solid var(--rule);
-  color: #4c6153;
-  font-size: 0.78rem;
-  font-weight: 650;
-}
-.table-head span:last-child {
-  text-align: right;
-}
+/* Individual deal histories */
+.history-key,
 #rows {
-  padding: 0;
-  list-style: none;
+  --blue: #245bc6;
+  --blue-ink: #193961;
+  --secondary: #52657b;
 }
-.deal {
-  border-bottom: 1px solid #e4e8dd;
-}
-.market-name {
-  font-size: 0.94rem;
-  font-weight: 600;
-  overflow-wrap: anywhere;
-  line-height: 1.35;
-}
-.deal-meta {
+.history-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 20px;
+  margin: 0 24px;
+  padding: 0 0 14px;
+  color: var(--secondary);
   font-size: 0.79rem;
-  color: var(--muted);
-  margin-top: 3px;
 }
-.deal time,
-.method-cell {
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-.method-tag {
+.history-key span {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  background: #eef2e6;
-  border: 1px solid #d8e2cb;
-  color: #3d5c36;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
+  gap: 8px;
+}
+.key-line {
+  width: 23px;
+  height: 3px;
+  background: var(--blue);
+  border-radius: 2px;
+}
+.key-diamond {
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--blue-ink);
+}
+#rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px;
+  list-style: none;
+  background: #f3f6fa;
+  border-block: 1px solid #dce3eb;
+}
+.deal {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 22px 16px;
+  border: 1px solid #d6dfea;
+  border-radius: 15px;
+  background: white;
+  box-shadow: 0 2px 5px #18335708;
+}
+.deal-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: auto;
+}
+.deal-heading {
+  min-width: 0;
+}
+.deal-source {
+  color: #435c79;
+  font-size: 0.68rem;
+  font-weight: 730;
+  text-transform: uppercase;
+  letter-spacing: 0.085em;
+}
+.market-name {
+  margin: 5px 0 10px;
+  color: #142b47;
+  font-size: clamp(1.06rem, 1.6vw, 1.27rem);
+  line-height: 1.23;
+  letter-spacing: -0.027em;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.deal-result {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 1px 8px;
 }
 .pnl {
-  font-weight: 650;
-  font-size: 1rem;
-  text-align: right;
+  font-weight: 690;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  letter-spacing: -0.043em;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+}
+.result-label {
+  color: var(--secondary);
+  font-size: 0.75rem;
+}
+.deal-face {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+.deal-face img {
+  width: 78px;
+  height: 78px;
+  border-radius: 17px;
+  border: 1px solid #d6e1ed;
+  object-fit: cover;
+}
+.deal-mood {
+  font-size: 0.72rem;
+  line-height: 1.25;
+  font-weight: 700;
+  color: var(--blue-ink);
+}
+.deal-chart-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 2px 8px;
+  padding-top: 17px;
+  margin: 14px 0 8px;
+  border-top: 1px solid #e6ebf1;
+}
+.plot-name {
+  color: var(--blue-ink);
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+.plot-detail {
+  font-size: 0.75rem;
+  color: var(--secondary);
+}
+.deal-plot {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 7px;
+}
+.deal-axis {
+  position: relative;
+  min-width: 28px;
+  font-size: 0.67rem;
+  color: #556980;
+  font-variant-numeric: tabular-nums;
+}
+.deal-axis span {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+}
+.deal-axis:before {
+  content: attr(data-width);
+  visibility: hidden;
+  white-space: pre;
+}
+.deal-field {
+  min-width: 0;
+  position: relative;
+}
+.deal-field svg {
+  display: block;
+  width: 100%;
+  height: 94px;
+  overflow: visible;
+  touch-action: pan-y;
+  cursor: crosshair;
+}
+.deal-field svg:focus-visible {
+  outline-color: var(--blue);
+  border-radius: 3px;
+}
+.deal-field path,
+.deal-field line,
+.deal-field circle {
+  vector-effect: non-scaling-stroke;
+}
+.grid-line {
+  stroke: #dce5ef;
+  stroke-dasharray: 2 4;
+}
+.grid-zero {
+  stroke: #aebed1;
+}
+.sample-line {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sample-area {
+  fill: #417bef14;
+}
+.sample-dot {
+  fill: var(--blue);
+}
+.close-diamond {
+  fill: var(--blue-ink);
+  stroke: white;
+  stroke-width: 1;
+}
+.sample-cursor {
+  fill: white;
+  stroke: var(--blue);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.sample-readout {
+  position: absolute;
+  inset: auto 0 calc(100% + 1px) auto;
+  pointer-events: none;
+  max-width: 100%;
+  padding: 3px 7px;
+  border-radius: 5px;
+  color: white;
+  background: #193961;
+  font-size: 0.69rem;
+  font-variant-numeric: tabular-nums;
+}
+.deal-dates {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 9px;
+  color: #425870;
+  font-size: 0.76rem;
+  line-height: 1.38;
+  font-variant-numeric: tabular-nums;
+}
+.deal-dates > div:last-child {
+  text-align: right;
+}
+.deal-dates span {
+  display: block;
+  margin-bottom: 2px;
+  font-weight: 650;
+  font-size: 0.69rem;
+  color: #586b81;
+}
+#rows .empty {
+  grid-column: 1 / -1;
+}
+@media (max-width: 779px) {
+  #rows {
+    grid-template-columns: 1fr;
+    padding: 12px;
+    gap: 12px;
+  }
+  .history-key {
+    margin: 0 16px;
+  }
+  .deal {
+    padding: 17px 17px 15px;
+  }
+  .deal-face img {
+    width: 70px;
+    height: 70px;
+    border-radius: 15px;
+  }
+}
+@media (max-width: 410px) {
+  #rows {
+    padding: 8px;
+    gap: 9px;
+  }
+  .deal {
+    padding: 14px 12px;
+    border-radius: 12px;
+  }
+  .deal-face img {
+    width: 60px;
+    height: 60px;
+    border-radius: 13px;
+  }
+  .deal-top {
+    gap: 8px;
+  }
+  .deal-mood {
+    font-size: 0.68rem;
+  }
+  .deal-chart-head {
+    margin-top: 12px;
+    padding-top: 10px;
+  }
+  .history-key {
+    gap: 6px 13px;
+    font-size: 0.73rem;
+  }
 }
 .empty {
   padding: 30px;
@@ -669,10 +900,6 @@ dialog p {
   }
   .hero-text {
     padding: 29px 30px;
-  }
-  .deal-grid {
-    grid-template-columns: minmax(0, 1fr) 148px 105px 95px;
-    gap: 11px;
   }
   .chart-card,
   .outcome {
@@ -834,40 +1061,6 @@ dialog p {
     flex: 1;
     max-width: none;
   }
-  .table-head {
-    display: none;
-  }
-  .deal-grid.deal {
-    padding: 13px 16px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 4px 12px;
-  }
-  .market {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .pnl {
-    grid-column: 2;
-    grid-row: 1;
-    align-self: start;
-  }
-  .deal time {
-    font-size: 0.79rem;
-    grid-column: 1;
-    grid-row: 2;
-  }
-  .method-cell {
-    grid-column: 2;
-    grid-row: 2;
-    text-align: right;
-    font-size: 0.76rem;
-  }
-  .method-tag {
-    font-size: 0.76rem;
-  }
-  .deal-meta {
-    display: inline-block;
-  }
   .pagination {
     padding: 12px 14px;
     gap: 5px;
@@ -940,9 +1133,6 @@ dialog p {
   }
   .pagination {
     font-size: 0.78rem;
-  }
-  .method-cell {
-    max-width: 95px;
   }
   .hero:after {
     inset: 7px;

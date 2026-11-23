@@ -184,7 +184,7 @@ def matched(row, sizes):
     )
 
 
-def build(rows, method, start, sizes, latest, now):
+def build(rows, method, start, sizes, latest, now, *, history_jobs=None):
     markets, tokens = collections.defaultdict(list), {}
     for row in rows:
         token = row["token_id"]
@@ -241,6 +241,8 @@ def build(rows, method, start, sizes, latest, now):
                 dust=any(number(r["current_size"]) > 0 for r in legs),
             )
         )
+        if history_jobs is not None:
+            history_jobs.append((legs, deals[-1]))
     deals.sort(key=lambda r: (-r["closed"], r["market"], r["pnl"]))
     return dict(
         version=1,
@@ -254,17 +256,25 @@ def build(rows, method, start, sizes, latest, now):
     )
 
 
-def snapshot(ledger, repository, gh):
+def snapshot(ledger, repository, gh, *, price_cache=None):
+    if __package__:
+        from .deal_history import populate
+    else:
+        from deal_history import populate
     tag, commit = release_tag(repository, gh)
     wallet, method, start, sizes, latest = release_and_entries(ledger, commit)
     rows = fetch_positions(wallet, "CLOSED") + fetch_positions(wallet, "OPEN")
     if not rows:
         raise ValueError("Trading account history unavailable")
-    return {
-        **build(rows, method, start, sizes, latest, int(time.time())),
-        "tag": tag,
-        "commit": commit,
-    }
+    history_jobs = []
+    result = build(
+        rows, method, start, sizes, latest, int(time.time()), history_jobs=history_jobs
+    )
+    cache = (
+        price_cache or Path(__file__).resolve().parents[1] / ".local" / "price-cache-v1"
+    )
+    populate(history_jobs, wallet, cache)
+    return {**result, "tag": tag, "commit": commit}
 
 
 if __name__ == "__main__":

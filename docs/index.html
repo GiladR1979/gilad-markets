@@ -10,8 +10,9 @@
     />
     <title>האם הגלעד מליונר? · Gilad Markets</title>
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="dashboard.css" />
-    <script src="dashboard.js" defer></script>
+    <link rel="stylesheet" href="dashboard.css?v=deal-moods" />
+    <script src="deal-cards.js" defer></script>
+    <script src="dashboard.js?v=deal-moods" defer></script>
   </head>
   <body>
     <a class="skip" href="#performance">Skip to performance</a>
@@ -136,7 +137,7 @@
       <section id="ledger" class="panel ledger" aria-labelledby="ledger-title">
         <div class="panel-head">
           <div>
-            <h2 id="ledger-title">Closed deals</h2>
+            <h2 id="ledger-title" tabindex="-1">Closed deals</h2>
             <p id="ledgerDesc">Realized results by market</p>
           </div>
           <div class="ledger-controls">
@@ -159,9 +160,15 @@
             >
           </div>
         </div>
-        <div id="tableHead" class="deal-grid table-head" aria-hidden="true">
-          <span>Market</span><span>Closed</span><span>Attribution</span
-          ><span>Realized P&amp;L</span>
+        <div class="history-key" aria-label="Deal chart legend">
+          <span
+            ><i class="key-line" aria-hidden="true"></i>Estimated open
+            P&amp;L</span
+          >
+          <span
+            ><i class="key-diamond" aria-hidden="true"></i>Realized at
+            close</span
+          >
         </div>
         <ol id="rows" aria-label="Closed market deals"></ol>
         <div class="pagination">
@@ -201,6 +208,22 @@
       </p>
       <h3>Which deals used the latest method?</h3>
       <p id="methodNotes">Reading the deployed method…</p>
+      <h3>What do the deal charts show?</h3>
+      <p>
+        The blue line estimates P&amp;L from account cash flows and historical
+        Polymarket prices while the deal was open. Complementary shares are
+        valued together at $1. The diamond marks the reported realized result.
+        Breaks in the line indicate missing prices. Hover, tap or use the arrow
+        keys on a chart to inspect its samples.
+      </p>
+      <h3>How is the mood chosen?</h3>
+      <p>
+        A losing close gets the crying portrait. For other deals, we measure the
+        largest fall from a running P&amp;L high, starting at zero, as a
+        percentage of the total dollars invested. A drop under 5% is Smooth, 5%
+        to under 15% is Troubling, and 15% or more is Nerve-wracking. When too
+        few prices are available to rate the ride, the portrait is neutral.
+      </p>
       <h3>How fresh is the data?</h3>
       <p>
         A read-only publisher on the bot host checks every 15 minutes. Trade

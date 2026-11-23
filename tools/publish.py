@@ -7,7 +7,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from snapshot import snapshot
+if __package__:
+    from .snapshot import snapshot
+else:
+    from snapshot import snapshot
+
+
+PUBLIC_REPO = "repos/GiladR1979/gilad-markets"
 
 
 def github(exe, endpoint, *, body=None):
@@ -26,10 +32,19 @@ def github(exe, endpoint, *, body=None):
     return json.loads(result.stdout)
 
 
+def snapshot_bytes(gh, metadata):
+    # The contents API omits inline data once the history grows beyond 1 MiB.
+    if metadata["encoding"] == "none":
+        metadata = github(gh, PUBLIC_REPO + "/git/blobs/" + metadata["sha"])
+    if metadata["encoding"] != "base64":
+        raise ValueError("Unsupported published snapshot encoding")
+    return base64.b64decode(metadata["content"])
+
+
 def refresh(ledger, repository, gh):
-    endpoint = "repos/GiladR1979/gilad-markets/contents/docs/deals.json"
+    endpoint = PUBLIC_REPO + "/contents/docs/deals.json"
     previous = github(gh, endpoint + "?ref=main")
-    old = json.loads(base64.b64decode(previous["content"]))
+    old = json.loads(snapshot_bytes(gh, previous))
     new = snapshot(ledger, repository, gh)
     if new["checked"] < old["checked"]:
         raise ValueError("Publisher clock predates the published snapshot")
@@ -53,7 +68,7 @@ def refresh(ledger, repository, gh):
         },
     )
     verified = github(gh, endpoint + "?ref=" + result["commit"]["sha"])
-    if base64.b64decode(verified["content"]) != encoded:
+    if snapshot_bytes(gh, verified) != encoded:
         raise ValueError("Published snapshot verification failed")
     print("Verified published snapshot " + result["commit"]["sha"][:12])
 
