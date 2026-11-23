@@ -17,6 +17,7 @@ const preciseCloseTime = new Intl.DateTimeFormat(undefined, {
 const day = 86400;
 const pageSize = 10;
 let data,
+  results = [],
   days = 0,
   page = 0,
   scoped = [],
@@ -82,16 +83,21 @@ function setMoney(id, amount) {
   if (signClass(amount)) el.classList.add(signClass(amount));
 }
 const sum = (rows) => rows.reduce((total, r) => total + r.pnl, 0);
+const resultTime = (row) => row.markedAt ?? row.closed;
 function updateSummary() {
-  const latest = data.deals.filter((r) => r.method);
-  setMoney("total", sum(data.deals));
+  const latest = results.filter((r) => r.method);
+  const marked = data.provisional ?? [];
+  byId("ruleSummary").textContent = marked.length
+    ? "Includes " + cash(sum(marked)) + " in provisional losses"
+    : "All methods · No provisional losses";
+  setMoney("total", sum(results));
   setMoney("latest", sum(latest));
   if (data.methodSince === null) byId("latest").textContent = "Pending";
   byId("methodName").textContent = data.tag;
   byId("scope").querySelector('[value="method"]').textContent = data.tag;
   byId("methodCount").textContent =
     latest.length + (latest.length === 1 ? " deal" : " deals");
-  byId("count").textContent = data.deals.length.toLocaleString("en-US");
+  byId("count").textContent = results.length.toLocaleString("en-US");
   if (data.deals.length)
     byId("firstClose").textContent =
       "First close · " +
@@ -142,9 +148,9 @@ function draw() {
   const start = days
     ? end - days * day
     : scoped.length
-      ? scoped[scoped.length - 1].closed - 1
+      ? resultTime(scoped[scoped.length - 1]) - 1
       : end - day;
-  const rows = scoped.filter((r) => r.closed >= start);
+  const rows = scoped.filter((r) => resultTime(r) >= start);
   renderOutcomes(rows);
   const total = sum(rows);
   byId("windowResult").textContent = "Period P&L  " + cash(total);
@@ -155,14 +161,14 @@ function draw() {
   plot.setAttribute("viewBox", `0 0 ${w} ${h}`);
   plot.setAttribute(
     "aria-label",
-    `Cumulative profit. ${rows.length} closed deals, period P&L ${cash(total)}. Use arrow keys to inspect closing dates.`,
+    `Cumulative profit. ${rows.length} deals, period P&L ${cash(total)}. Use arrow keys to inspect dates.`,
   );
   if (!rows.length) {
     svg(
       "text",
       { x: w / 2, y: h / 2, "text-anchor": "middle", class: "empty-chart" },
       plot,
-      "No closed deals in this period",
+      "No deals in this period",
     );
     return;
   }
@@ -173,8 +179,9 @@ function draw() {
   const points = [{ t: start, v: 0 }];
   for (const r of [...rows].reverse()) {
     const last = points[points.length - 1];
-    if (last.t === r.closed) last.v += r.pnl;
-    else points.push({ t: r.closed, v: last.v + r.pnl });
+    const t = resultTime(r);
+    if (last.t === t) last.v += r.pnl;
+    else points.push({ t, v: last.v + r.pnl });
   }
   const values = points.map((p) => p.v / data.unit);
   const min = Math.min(0, ...values),
@@ -351,7 +358,15 @@ function renderList() {
   list.start = page * pageSize + 1;
   for (const deal of items) list.append(renderDealCard(deal));
   if (!items.length)
-    list.append(span("li", "empty", "No closed deals match these filters."));
+    list.append(
+      span(
+        "li",
+        "empty",
+        byId("result").value === "provisional"
+          ? "No open positions meet the 99% loss rule in this view."
+          : "No deals match these filters.",
+      ),
+    );
   byId("prev").disabled = page === 0;
   byId("next").disabled = (page + 1) * pageSize >= visible.length;
   byId("pageInfo").textContent = items.length
@@ -366,6 +381,8 @@ function filterList() {
     (r) =>
       r.market.toLocaleLowerCase().includes(term) &&
       (result === "all" ||
+        (result === "provisional" && r.markedAt != null) ||
+        (result === "final" && r.closed != null) ||
         (result === "settled" && r.settled) ||
         (result === "win" && r.pnl > 0) ||
         (result === "loss" && r.pnl < 0) ||
@@ -377,7 +394,7 @@ function filterList() {
 function changeScope() {
   if (!data) return;
   const field = byId("scope").value;
-  scoped = field === "all" ? data.deals : data.deals.filter((r) => r[field]);
+  scoped = field === "all" ? results : results.filter((r) => r[field]);
   byId("ledgerDesc").textContent =
     `${scoped.length} markets · Newest first · Your local time`;
   draw();
@@ -425,11 +442,24 @@ async function loadSnapshot() {
     const response = await fetch("deals.json", { cache: "no-cache" });
     if (!response.ok) throw Error("Snapshot unavailable");
     const next = await response.json();
+    const marked = next.provisional ?? [];
     if (
       next.version !== 1 ||
       next.unit !== 10000 ||
       !Array.isArray(next.deals) ||
       !Number.isSafeInteger(next.checked) ||
+      !Array.isArray(marked) ||
+      !marked.every(
+        (r) =>
+          Number.isSafeInteger(r.markedAt) &&
+          r.markedAt === next.checked &&
+          Number.isSafeInteger(r.pnl) &&
+          r.pnl < 0 &&
+          typeof r.market === "string" &&
+          r.priceRule &&
+          Number.isFinite(r.priceRule.entry) &&
+          Number.isFinite(r.priceRule.mark),
+      ) ||
       !next.deals.every(
         (r) =>
           Number.isSafeInteger(r.pnl) &&
@@ -440,6 +470,9 @@ async function loadSnapshot() {
       throw Error("Invalid snapshot");
     if (!data || data.checked !== next.checked) {
       data = next;
+      results = [...marked, ...next.deals].sort(
+        (a, b) => resultTime(b) - resultTime(a),
+      );
       updateSummary();
       changeScope();
     }

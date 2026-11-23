@@ -10,10 +10,10 @@
     />
     <title>האם הגלעד מליונר? · Gilad Markets</title>
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="dashboard.css?v=comments" />
+    <link rel="stylesheet" href="dashboard.css?v=price-rule" />
     <script src="comments.js" defer></script>
-    <script src="deal-cards.js?v=settlement" defer></script>
-    <script src="dashboard.js?v=settlement" defer></script>
+    <script src="deal-cards.js?v=price-rule" defer></script>
+    <script src="dashboard.js?v=price-rule" defer></script>
   </head>
   <body>
     <a class="skip" href="#performance">Skip to performance</a>
@@ -23,7 +23,7 @@
           ><img src="mark.svg" width="32" height="32" alt="" />Gilad Markets</a
         >
         <nav aria-label="Main">
-          <a href="#overview">Overview</a><a href="#ledger">Closed deals</a>
+          <a href="#overview">Overview</a><a href="#ledger">Deals</a>
           <a href="#comments">Comments</a>
         </nav>
         <button id="about" class="about" type="button">
@@ -37,18 +37,18 @@
         <div class="hero-text">
           <div class="kicker"><i></i> POLYMARKET BOT</div>
           <h1 id="title" lang="he" dir="rtl">האם הגלעד מליונר?</h1>
-          <p>Returns from Gilad’s closed and settled markets.</p>
+          <p>Market-by-market returns from Gilad’s trading account.</p>
         </div>
       </section>
       <div id="notice" class="notice" role="status" hidden></div>
       <section class="stats" aria-label="Performance summary">
         <article class="stat">
           <div class="stat-top">
-            <span>Total closed P&amp;L</span
+            <span>Reported P&amp;L</span
             ><span class="glyph" data-icon="wallet"></span>
           </div>
           <div class="big" id="total">—</div>
-          <p>Trading account <b>·</b> All methods</p>
+          <p id="ruleSummary">All methods</p>
         </article>
         <article class="stat">
           <div class="stat-top">
@@ -63,7 +63,7 @@
         </article>
         <article class="stat">
           <div class="stat-top">
-            <span>Closed deals</span
+            <span>Deals counted</span
             ><span class="glyph" data-icon="book"></span>
           </div>
           <div class="big" id="count">—</div>
@@ -86,7 +86,7 @@
           <div class="panel-head">
             <div>
               <h3>Cumulative profit</h3>
-              <p>P&amp;L from closed and settled deals</p>
+              <p>Closed results and provisional losses</p>
             </div>
             <div class="ranges" role="group" aria-label="Chart date range">
               <button type="button" data-days="7" aria-pressed="false">
@@ -105,12 +105,12 @@
               role="img"
               tabindex="0"
               id="plot"
-              aria-label="Cumulative closed and settled profit, US dollars."
+              aria-label="Cumulative reported profit, US dollars."
             ></svg>
             <div class="tip" id="tip" hidden></div>
           </div>
           <div class="chart-foot">
-            <span><i class="line-key"></i> Net closed P&amp;L</span
+            <span><i class="line-key"></i> Net reported P&amp;L</span
             ><span id="windowResult">—</span>
           </div>
         </div>
@@ -139,8 +139,8 @@
       <section id="ledger" class="panel ledger" aria-labelledby="ledger-title">
         <div class="panel-head">
           <div>
-            <h2 id="ledger-title" tabindex="-1">Closed deals</h2>
-            <p id="ledgerDesc">Final results by market</p>
+            <h2 id="ledger-title" tabindex="-1">Deal ledger</h2>
+            <p id="ledgerDesc">Results by market</p>
           </div>
           <div class="ledger-controls">
             <label class="search"
@@ -152,12 +152,14 @@
                 aria-label="Search markets"
             /></label>
             <label class="select"
-              ><span class="visually-hidden">Filter closed deals</span
+              ><span class="visually-hidden">Filter deals</span
               ><select id="result">
                 <option value="all">All results</option>
                 <option value="win">Profitable</option>
                 <option value="loss">Loss-making</option>
                 <option value="flat">Break-even</option>
+                <option value="provisional">99% price losses</option>
+                <option value="final">Closed &amp; settled</option>
                 <option value="settled">Settled holdings</option>
               </select></label
             >
@@ -169,11 +171,11 @@
             P&amp;L</span
           >
           <span
-            ><i class="key-diamond" aria-hidden="true"></i>Final P&amp;L at
-            close</span
+            ><i class="key-diamond" aria-hidden="true"></i>Close or latest
+            mark</span
           >
         </div>
-        <ol id="rows" aria-label="Closed market deals"></ol>
+        <ol id="rows" aria-label="Market deals"></ol>
         <div class="pagination">
           <span id="pageInfo" role="status">Loading deals…</span>
           <div>
@@ -238,8 +240,17 @@
         carried as open at confirmed settlement, we also include the final
         payout minus their remaining cost. Losing shares pay $0 even if they
         stay in the wallet. Each market counts once, including after redemption.
-        Live prices are used only in the history charts. The account total
-        includes manual activity.
+        The account total includes manual activity.
+      </p>
+      <h3>How does the 99% loss rule work?</h3>
+      <p>
+        An open position triggers the rule when its price falls to 1% or less of
+        its average entry price. We count a provisional loss only if the whole
+        market is underwater after costs and realized gains. Filled shares on
+        opposite sides pair at $1 per complete set. Only the unmatched shares
+        are valued at their current price. Pending orders provide no offset.
+        Each refresh checks the rule again. A recovery removes the provisional
+        loss, and a close replaces it with the final result.
       </p>
       <h3>Which deals used the latest method?</h3>
       <p id="methodNotes">Reading the deployed method…</p>
@@ -247,9 +258,9 @@
       <p>
         The blue line estimates P&amp;L from account cash flows and historical
         Polymarket prices while the deal was open. Complementary shares are
-        valued together at $1. The diamond marks the final deal result. Breaks
-        in the line indicate missing prices. Hover, tap or use the arrow keys on
-        a chart to inspect its samples.
+        valued together at $1. The diamond marks the final result or the latest
+        provisional mark. Breaks in the line indicate missing prices. Hover, tap
+        or use the arrow keys on a chart to inspect its samples.
       </p>
       <h3>How is the mood chosen?</h3>
       <p>
@@ -268,7 +279,7 @@
     </dialog>
     <noscript
       ><p class="wrap">
-        Enable JavaScript to display the dashboard and explore closed deals.
+        Enable JavaScript to display the dashboard and explore deals.
       </p></noscript
     >
   </body>

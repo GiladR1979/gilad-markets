@@ -38,8 +38,9 @@ function plotScale(samples) {
 }
 
 function dealPlot(deal, history) {
-  const start = history.opened ?? deal.closed;
-  const duration = deal.closed - start;
+  const end = resultTime(deal);
+  const start = history.opened ?? end;
+  const duration = end - start;
   const close = [duration, deal.pnl];
   const samples = history.segments.flat().concat([close]);
   const { low, high, ticks } = plotScale(samples);
@@ -69,8 +70,8 @@ function dealPlot(deal, history) {
         ". " +
         (history.segments.length
           ? "Estimated open P&L. "
-          : "Only the close is available. ") +
-        "Final P&L at close " +
+          : "Only the endpoint is available. ") +
+        (deal.priceRule ? "Provisional P&L " : "Final P&L at close ") +
         cash(deal.pnl) +
         ". Use left and right arrows to inspect samples.",
     },
@@ -145,7 +146,11 @@ function dealPlot(deal, history) {
     cursor.setAttribute("cy", y(value));
     cursor.setAttribute("visibility", "visible");
     readout.textContent =
-      (active === samples.length - 1 ? "Closed " : "Estimate ") +
+      (active === samples.length - 1
+        ? deal.priceRule
+          ? "Marked "
+          : "Closed "
+        : "Estimate ") +
       cash(value) +
       " · " +
       localCloseTime.format((start + t) * 1000);
@@ -217,10 +222,36 @@ function renderDealCard(deal) {
     span(
       "span",
       "result-label",
-      deal.settled ? "Settlement P&L" : "Realized P&L",
+      deal.priceRule
+        ? "Provisional loss · position open"
+        : deal.settled
+          ? "Settlement P&L"
+          : "Realized P&L",
     ),
   );
   heading.append(result);
+  if (deal.priceRule) {
+    const { outcome, entry, mark } = deal.priceRule;
+    const cents = new Intl.NumberFormat(undefined, {
+      maximumFractionDigits: 5,
+    });
+    heading.append(
+      span(
+        "p",
+        "deal-mark",
+        outcome +
+          " · " +
+          cents.format(entry * 100) +
+          "¢ entry → " +
+          cents.format(mark * 100) +
+          "¢ now · " +
+          ((1 - mark / entry) * 100).toLocaleString(undefined, {
+            maximumFractionDigits: 2,
+          }) +
+          "% drop",
+      ),
+    );
+  }
   const face = span("div", "deal-face", "");
   const photo = document.createElement("img");
   photo.src = "moods/" + h.mood + ".webp";
@@ -241,7 +272,9 @@ function renderDealCard(deal) {
         "%"
       : h.coverage === "partial"
         ? "Partial history"
-        : "Close only";
+        : deal.priceRule
+          ? "Current mark only"
+          : "Close only";
   const detail = span("span", "plot-detail", coverage);
   detail.title =
     h.coverage === "full"
@@ -261,7 +294,7 @@ function renderDealCard(deal) {
     ),
   );
   const closed = span("div", "", "");
-  const closeDate = new Date(deal.closed * 1000);
+  const closeDate = new Date(resultTime(deal) * 1000);
   const time = span("time", "", localCloseTime.format(closeDate));
   time.dateTime = closeDate.toISOString();
   time.title = preciseCloseTime.format(closeDate);
@@ -269,7 +302,13 @@ function renderDealCard(deal) {
     span(
       "span",
       "",
-      deal.settled ? "Settled" : deal.dust ? "Closed with dust" : "Closed",
+      deal.priceRule
+        ? "Last marked"
+        : deal.settled
+          ? "Settled"
+          : deal.dust
+            ? "Closed with dust"
+            : "Closed",
     ),
     time,
   );

@@ -748,6 +748,12 @@ select,
   align-items: center;
   gap: 5px;
 }
+.deal-mark {
+  margin-top: 5px;
+  color: var(--secondary);
+  overflow-wrap: anywhere;
+  font-size: 0.77rem;
+}
 .deal-face img {
   width: 78px;
   height: 78px;

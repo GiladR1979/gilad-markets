@@ -189,6 +189,54 @@ def matched(row, sizes):
     )
 
 
+def price_rule_loss(legs):
+    """Mark a 99% price decline only when the entire filled market position is losing."""
+    held = [
+        r for r in legs if r["status"] != "CLOSED" and number(r["current_size"]) > 0
+    ]
+    triggers = []
+    for r in held:
+        if (
+            number(r["current_size"]) < DUST
+            or r.get("avg_price") is None
+            or r.get("current_price") is None
+        ):
+            continue
+        entry, mark = number(r["avg_price"]), number(r["current_price"])
+        if 0 < entry <= 1 and 0 <= mark <= entry / 100:
+            triggers.append((mark / entry, str(r["token_id"]), r))
+    if not triggers:
+        return None
+    paired = Decimal(0)
+    if len(held) > 1:
+        if len(held) != 2 or any(
+            r.get("opposite_token_id") != held[1 - i]["token_id"]
+            for i, r in enumerate(held)
+        ):
+            return None
+        paired = min(number(r["current_size"]) for r in held)
+    net = sum(number(r["realized_pnl"]) for r in legs) + paired
+    for r in held:
+        net -= number(r["total_cost_usdc"])
+        excess = number(r["current_size"]) - paired
+        if excess:
+            if (
+                r.get("current_price") is None
+                or not 0 <= number(r["current_price"]) <= 1
+            ):
+                return None
+            net += excess * number(r["current_price"])
+    units = round(net * PNL_SCALE)
+    if units >= 0:
+        return None
+    _, _, trigger = min(triggers)
+    return units, {
+        "outcome": trigger["outcome"],
+        "entry": float(trigger["avg_price"]),
+        "mark": float(trigger["current_price"]),
+    }
+
+
 def build(
     rows, method, start, sizes, latest, now, *, history_jobs=None, settlements=None
 ):
@@ -207,7 +255,7 @@ def build(
         if row["status"] not in {"CLOSED", "OPEN", "REDEEMABLE"}:
             raise ValueError("Unknown position lifecycle")
         markets[row["condition_id"]].append(row)
-    deals = []
+    deals, provisional = [], []
     for legs in markets.values():
         settlement = (settlements or {}).get(legs[0]["condition_id"])
         if settlement and (
@@ -215,8 +263,11 @@ def build(
             or any(r["token_id"] not in settlement.payouts for r in legs)
         ):
             raise ValueError("Settlement identity or chronology mismatch")
+        marked = None
         if not settlement and any(number(r["current_size"]) >= DUST for r in legs):
-            continue
+            marked = price_rule_loss(legs)
+            if marked is None:
+                continue
         legs.sort(key=lambda row: (row["outcome_index"], row["token_id"]))
         last = max(int(r["last_event_at"]) for r in legs)
         if any(
@@ -253,23 +304,30 @@ def build(
             )
         )
         # Only these public market/result fields cross the publication boundary.
-        deals.append(
-            dict(
-                market=title,
-                closed=last,
-                pnl=int(pnl),
-                legs=len(legs),
-                method=is_latest,
-                verified=is_bot,
-                dust=all(number(r["current_size"]) < DUST for r in legs)
-                and any(number(r["current_size"]) > 0 for r in legs),
-            )
+        deal = dict(
+            market=title,
+            closed=last,
+            pnl=int(pnl),
+            legs=len(legs),
+            method=is_latest,
+            verified=is_bot,
+            dust=all(number(r["current_size"]) < DUST for r in legs)
+            and any(number(r["current_size"]) > 0 for r in legs),
         )
         if settlement:
-            deals[-1]["settled"] = True
+            deal["settled"] = True
+        if marked:
+            if last > now:
+                raise ValueError("Price observation predates the position")
+            del deal["closed"]
+            deal.update(markedAt=int(now), pnl=marked[0], priceRule=marked[1])
+            provisional.append(deal)
+        else:
+            deals.append(deal)
         if history_jobs is not None:
-            history_jobs.append((legs, deals[-1], settlement))
+            history_jobs.append((legs, deal, settlement))
     deals.sort(key=lambda r: (-r["closed"], r["market"], r["pnl"]))
+    provisional.sort(key=lambda r: (r["market"], r["pnl"]))
     return dict(
         version=1,
         checked=int(now),
@@ -279,6 +337,7 @@ def build(
         unit=PNL_SCALE,
         dustShares=str(DUST),
         deals=deals,
+        provisional=provisional,
     )
 
 

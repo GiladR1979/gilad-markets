@@ -57,7 +57,7 @@ def activity_by_market(wallet):
     raise ValueError("Account activity pagination exceeded")
 
 
-def token_prices(token, start, end, directory):
+def token_prices(token, start, end, directory, *, cache_result=True):
     # Never send a wallet or order identifier to the price-history service.
     digest = hashlib.sha256(f"{token}|{start}|{end}|1".encode()).hexdigest()
     path = directory / (digest + ".json.gz")
@@ -80,6 +80,8 @@ def token_prices(token, start, end, directory):
                 accumulated[stamp] = value
         clock = stop
     result = sorted(accumulated.items())
+    if not cache_result:
+        return result
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=directory, delete=False) as temp:
         temp.write(gzip.compress(json.dumps(result, separators=(",", ":")).encode()))
@@ -91,7 +93,7 @@ def money_units(value):
     return round(value * UNIT)
 
 
-def evidence(legs, events, settlement=None, final_units=None):
+def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
     """Validate the whole market before using its intervening cash and share balances."""
     tokens = [r["token_id"] for r in legs]
     if len(tokens) == 2 and any(
@@ -165,6 +167,8 @@ def evidence(legs, events, settlement=None, final_units=None):
     close = max(r["last_event_at"] for r in legs)
     if settlement:
         close = max(close, settlement.closed)
+    elif marked_at is not None:
+        close = marked_at
     if (
         stake <= 0
         or intervals[0][0] != min(r["first_entry_at"] for r in legs)
@@ -187,13 +191,25 @@ def evidence(legs, events, settlement=None, final_units=None):
             > rounding + len(legs) * QUANTUM
         ):
             return
+    elif marked_at is not None:
+        remaining_cost = sum(
+            r["total_cost_usdc"]
+            for r in legs
+            if r["status"] != "CLOSED" and r["current_size"] > 0
+        )
+        if abs(cash + remaining_cost - sum(r["realized_pnl"] for r in legs)) > rounding:
+            return
     else:
         tolerance = sum(r["current_size"] for r in legs) + rounding
         if abs(cash - sum(r["realized_pnl"] for r in legs)) > tolerance:
             return
     if intervals[-1][0] < close:
         # The last trade can precede a dust bookkeeping event or final settlement.
-        if not settlement and any(abs(size) >= DUST for size in balances.values()):
+        if (
+            not settlement
+            and marked_at is None
+            and any(abs(size) >= DUST for size in balances.values())
+        ):
             return
         intervals.append((close, float(cash), tokens[0], 0.0, None))
     if settlement:
@@ -227,13 +243,17 @@ def compress(points, start, end):
     return kept
 
 
-def reconstruct(legs, events, prices, *, settlement=None, final_units=None):
+def reconstruct(
+    legs, events, prices, *, settlement=None, final_units=None, marked_at=None
+):
     start, end = (
         min(r["first_entry_at"] for r in legs),
         max(r["last_event_at"] for r in legs),
     )
     if settlement:
         end = max(end, settlement.closed)
+    elif marked_at is not None:
+        end = marked_at
     loss = (
         final_units < 0
         if final_units is not None
@@ -245,7 +265,7 @@ def reconstruct(legs, events, prices, *, settlement=None, final_units=None):
         "coverage": "close",
         "segments": [],
     }
-    verified = evidence(legs, events, settlement, final_units)
+    verified = evidence(legs, events, settlement, final_units, marked_at)
     if not verified:
         return out
     intervals, stake = verified
@@ -332,12 +352,16 @@ def populate(jobs, wallet, cache):
 
     def process(job):
         legs, deal, settlement = job
+        marked_at = deal.get("markedAt")
         deal["history"] = reconstruct(
             legs,
             activity[legs[0]["condition_id"]],
-            lambda token, start, end: token_prices(token, start, end, cache),
+            lambda token, start, end: token_prices(
+                token, start, end, cache, cache_result=marked_at is None
+            ),
             settlement=settlement,
             final_units=deal["pnl"],
+            marked_at=marked_at,
         )
 
     with ThreadPoolExecutor(max_workers=4) as workers:
