@@ -80,8 +80,7 @@ function updateSummary() {
   setMoney("latest", sum(latest));
   if (data.methodSince === null) byId("latest").textContent = "Pending";
   byId("methodName").textContent = data.tag;
-  byId("scope").querySelector('[value="method"]').textContent =
-    data.tag + " · Latest";
+  byId("scope").querySelector('[value="method"]').textContent = data.tag;
   byId("methodCount").textContent =
     latest.length + (latest.length === 1 ? " deal" : " deals");
   byId("count").textContent = data.deals.length.toLocaleString("en-US");
@@ -225,7 +224,12 @@ function draw() {
       (v < -1e-8 ? "−" : "") + "$" + label,
     );
   }
-  const ticks = w < 400 ? 3 : 5;
+  const maxTicks = w < 400 ? 3 : 5;
+  const duration = end - start;
+  const intraday = duration < day;
+  const ticks = intraday
+    ? maxTicks
+    : Math.min(maxTicks, Math.floor(duration / day) + 1);
   for (let i = 0; i < ticks; i++) {
     const t = start + (i * (end - start)) / (ticks - 1);
     svg(
@@ -236,7 +240,12 @@ function draw() {
         "text-anchor": i === 0 ? "start" : i === ticks - 1 ? "end" : "middle",
       },
       plot,
-      dateAt(t, { month: "short", day: "numeric" }),
+      dateAt(
+        t,
+        intraday
+          ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }
+          : { month: "short", day: "numeric" },
+      ),
     );
   }
   const path =
