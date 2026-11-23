@@ -539,7 +539,7 @@ select,
 }
 .deal-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 132px 132px 112px;
+  grid-template-columns: minmax(0, 1fr) 170px 132px 112px;
   gap: 16px;
   align-items: center;
   padding: 13px 24px;
@@ -671,7 +671,7 @@ dialog p {
     padding: 29px 30px;
   }
   .deal-grid {
-    grid-template-columns: minmax(0, 1fr) 103px 105px 95px;
+    grid-template-columns: minmax(0, 1fr) 148px 105px 95px;
     gap: 11px;
   }
   .chart-card,

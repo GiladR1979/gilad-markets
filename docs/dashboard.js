@@ -6,6 +6,14 @@ const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
 });
+const localCloseTime = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+const preciseCloseTime = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "full",
+  timeStyle: "long",
+});
 const day = 86400;
 const pageSize = 10;
 let data,
@@ -86,7 +94,8 @@ function updateSummary() {
   byId("count").textContent = data.deals.length.toLocaleString("en-US");
   if (data.deals.length)
     byId("firstClose").textContent =
-      "First close · " + dateAt(data.deals[data.deals.length - 1].closed);
+      "First close · " +
+      localCloseTime.format(data.deals[data.deals.length - 1].closed * 1000);
   byId("updated").textContent =
     "Snapshot · " +
     dateAt(data.checked, { dateStyle: "medium", timeStyle: "short" }) +
@@ -353,9 +362,10 @@ function renderList() {
           (r.dust ? " · Dust closed" : ""),
       ),
     );
-    const time = span("time", "", dateAt(r.closed));
-    time.dateTime = new Date(r.closed * 1000).toISOString();
-    time.title = time.dateTime;
+    const closedAt = new Date(r.closed * 1000);
+    const time = span("time", "", localCloseTime.format(closedAt));
+    time.dateTime = closedAt.toISOString();
+    time.title = preciseCloseTime.format(closedAt);
     const method = span("div", "method-cell", "");
     method.append(
       span(
@@ -400,7 +410,7 @@ function changeScope() {
   const field = byId("scope").value;
   scoped = field === "all" ? data.deals : data.deals.filter((r) => r[field]);
   byId("ledgerDesc").textContent =
-    `${scoped.length} markets · All dates · Newest first`;
+    `${scoped.length} markets · Newest first · Your local time`;
   draw();
   filterList();
 }
