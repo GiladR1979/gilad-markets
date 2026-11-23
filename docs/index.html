@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#082e29" />
+    <meta
+      name="description"
+      content="Realized profits, ranked-buy results and the closed-deal ledger for Gilad’s Polymarket trading account."
+    />
+    <title>האם הגלעד מליונר? · Gilad Markets</title>
+    <link rel="icon" href="mark.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="dashboard.css" />
+    <script src="dashboard.js" defer></script>
+  </head>
+  <body>
+    <a class="skip" href="#performance">Skip to performance</a>
+    <header class="top">
+      <div class="wrap nav">
+        <a class="brand" href="#overview"
+          ><img src="mark.svg" width="32" height="32" alt="" />Gilad Markets</a
+        >
+        <nav aria-label="Main">
+          <a href="#overview">Overview</a><a href="#ledger">Closed deals</a>
+        </nav>
+        <button id="about" class="about" type="button">
+          <span aria-hidden="true">ⓘ</span> Data notes
+        </button>
+      </div>
+    </header>
+    <main class="wrap" id="overview">
+      <section class="hero" aria-labelledby="title">
+        <img class="bull" src="bull.webp" width="960" height="640" alt="" />
+        <div class="hero-text">
+          <div class="kicker"><i></i> POLYMARKET BOT</div>
+          <h1 id="title" lang="he" dir="rtl">האם הגלעד מליונר?</h1>
+          <p>Realized returns from Gilad’s trading account.</p>
+        </div>
+      </section>
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section class="stats" aria-label="Performance summary">
+        <article class="stat">
+          <div class="stat-top">
+            <span>Total realized P&amp;L</span
+            ><span class="glyph" data-icon="wallet"></span>
+          </div>
+          <div class="big" id="total">—</div>
+          <p>Trading account <b>·</b> All methods</p>
+        </article>
+        <article class="stat">
+          <div class="stat-top">
+            <span>Latest method P&amp;L</span
+            ><span class="glyph gold" data-icon="layers"></span>
+          </div>
+          <div class="big" id="latest">—</div>
+          <p>
+            <span id="methodName">Current method</span> <b>·</b>
+            <span id="methodCount">— deals</span>
+          </p>
+        </article>
+        <article class="stat">
+          <div class="stat-top">
+            <span>Closed deals</span
+            ><span class="glyph" data-icon="book"></span>
+          </div>
+          <div class="big" id="count">—</div>
+          <p id="firstClose">Fully closed and dust-only markets</p>
+        </article>
+      </section>
+      <div class="section-bar" id="performance">
+        <h2>Performance</h2>
+        <label class="select"
+          ><span class="visually-hidden">Performance and ledger scope</span
+          ><select id="scope">
+            <option value="all">All methods</option>
+            <option value="verified">Ledger-matched bot</option>
+            <option value="method" selected>Latest method</option>
+          </select></label
+        >
+      </div>
+      <section class="charts" aria-label="Performance charts">
+        <div class="panel chart-card">
+          <div class="panel-head">
+            <div>
+              <h3>Cumulative profit</h3>
+              <p>Realized P&amp;L from closed deals</p>
+            </div>
+            <div class="ranges" role="group" aria-label="Chart date range">
+              <button type="button" data-days="7" aria-pressed="false">
+                7D
+              </button>
+              <button type="button" data-days="30" aria-pressed="false">
+                30D
+              </button>
+              <button type="button" data-days="0" aria-pressed="true">
+                All
+              </button>
+            </div>
+          </div>
+          <div class="chart-wrap" id="plotWrap">
+            <svg
+              role="img"
+              tabindex="0"
+              id="plot"
+              aria-label="Cumulative realized profit, US dollars."
+            ></svg>
+            <div class="tip" id="tip" hidden></div>
+          </div>
+          <div class="chart-foot">
+            <span><i class="line-key"></i> Net realized P&amp;L</span
+            ><span id="windowResult">—</span>
+          </div>
+        </div>
+        <div class="panel outcome">
+          <h3>Deal outcomes</h3>
+          <p id="outcomePeriod">All time</p>
+          <div class="ring" id="ring">
+            <div><strong id="winRate">—</strong><span>Win rate</span></div>
+          </div>
+          <dl id="outcomeList">
+            <div>
+              <dt><i class="dot wins"></i>Profitable</dt>
+              <dd id="wins">—</dd>
+            </div>
+            <div>
+              <dt><i class="dot losses"></i>Loss-making</dt>
+              <dd id="losses">—</dd>
+            </div>
+            <div>
+              <dt><i class="dot flats"></i>Break-even</dt>
+              <dd id="flats">—</dd>
+            </div>
+          </dl>
+        </div>
+      </section>
+      <section id="ledger" class="panel ledger" aria-labelledby="ledger-title">
+        <div class="panel-head">
+          <div>
+            <h2 id="ledger-title">Closed deals</h2>
+            <p id="ledgerDesc">Realized results by market</p>
+          </div>
+          <div class="ledger-controls">
+            <label class="search"
+              ><span data-icon="search"></span
+              ><input
+                id="search"
+                type="search"
+                placeholder="Search markets"
+                aria-label="Search markets"
+            /></label>
+            <label class="select"
+              ><span class="visually-hidden">Filter by result</span
+              ><select id="result">
+                <option value="all">All results</option>
+                <option value="win">Profitable</option>
+                <option value="loss">Loss-making</option>
+                <option value="flat">Break-even</option>
+              </select></label
+            >
+          </div>
+        </div>
+        <div id="tableHead" class="deal-grid table-head" aria-hidden="true">
+          <span>Market</span><span>Closed (UTC)</span><span>Attribution</span
+          ><span>Realized P&amp;L</span>
+        </div>
+        <ol id="rows" aria-label="Closed market deals"></ol>
+        <div class="pagination">
+          <span id="pageInfo" role="status">Loading deals…</span>
+          <div>
+            <button type="button" id="prev" disabled>Previous</button
+            ><button type="button" id="next" disabled>Next</button>
+          </div>
+        </div>
+      </section>
+      <footer>
+        <span class="footer-brand"
+          ><img src="mark.svg" width="21" height="21" alt="" />Gilad
+          Markets</span
+        ><span id="updated">Checking snapshot…</span>
+      </footer>
+    </main>
+    <dialog id="notes">
+      <div class="dialog-heading">
+        <h2>Data notes</h2>
+        <button type="button" id="close" aria-label="Close data notes">
+          ×
+        </button>
+      </div>
+      <h3>What counts as a deal?</h3>
+      <p>
+        Each deal groups all outcomes held in one Polymarket market. A market
+        closes when each outcome has fewer than 0.01 shares remaining. The close
+        time is the last recorded position event, in UTC.
+      </p>
+      <h3>How is profit calculated?</h3>
+      <p>
+        We add Polymarket’s reported realized P&amp;L across the market’s
+        outcomes. Open-market marks, deposits, withdrawals and the estimated
+        value of dust are excluded. The account total includes any manual
+        activity in this trading account.
+      </p>
+      <h3>Which deals used the latest method?</h3>
+      <p id="methodNotes">Reading the deployed method…</p>
+      <h3>How fresh is the data?</h3>
+      <p>
+        A read-only publisher on the bot host checks every 15 minutes. Trade
+        changes publish on the next successful check. Quiet periods receive a
+        timestamp update every six hours. The footer shows the snapshot time.
+      </p>
+    </dialog>
+    <noscript
+      ><p class="wrap">
+        Enable JavaScript to display the dashboard and explore closed deals.
+      </p></noscript
+    >
+  </body>
+</html>

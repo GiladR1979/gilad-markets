@@ -1,0 +1,6 @@
+.local/
+__pycache__/
+.pytest_cache/
+graphify-out/
+*.sqlite*
+.env*
