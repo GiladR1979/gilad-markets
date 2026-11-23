@@ -10,7 +10,8 @@
     />
     <title>האם הגלעד מליונר? · Gilad Markets</title>
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="dashboard.css?v=deal-moods" />
+    <link rel="stylesheet" href="dashboard.css?v=comments" />
+    <script src="comments.js" defer></script>
     <script src="deal-cards.js" defer></script>
     <script src="dashboard.js?v=deal-moods" defer></script>
   </head>
@@ -23,6 +24,7 @@
         >
         <nav aria-label="Main">
           <a href="#overview">Overview</a><a href="#ledger">Closed deals</a>
+          <a href="#comments">Comments</a>
         </nav>
         <button id="about" class="about" type="button">
           <span aria-hidden="true">ⓘ</span> Data notes
@@ -178,6 +180,34 @@
             ><button type="button" id="next" disabled>Next</button>
           </div>
         </div>
+      </section>
+      <section
+        id="comments"
+        class="panel comments"
+        aria-labelledby="comments-title"
+      >
+        <div class="comments-head">
+          <div>
+            <h2 id="comments-title">Comments</h2>
+            <p>
+              Post in the public GitHub thread. Gilad reviews each comment
+              before it appears here.
+            </p>
+          </div>
+          <a
+            class="comment-write"
+            href="https://github.com/GiladR1979/gilad-markets/issues/1#issuecomment-new"
+            >Comment on GitHub <span aria-hidden="true">↗</span></a
+          >
+        </div>
+        <p id="comments-status" role="status" hidden></p>
+        <noscript
+          ><p>Visit the GitHub thread to read and write comments.</p></noscript
+        >
+        <ol id="comment-list" aria-label="Approved comments" hidden></ol>
+        <button type="button" id="more-comments" hidden>
+          Show more comments
+        </button>
       </section>
       <footer>
         <span class="footer-brand"

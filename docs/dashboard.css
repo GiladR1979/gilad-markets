@@ -264,6 +264,115 @@ footer {
   justify-content: space-between;
   gap: 12px;
 }
+.comments {
+  margin-top: 22px;
+  padding: 23px 25px;
+}
+.comments-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px 25px;
+}
+.comments-head h2 {
+  font-size: 1.45rem;
+}
+.comments-head p,
+#comments-status,
+.comments noscript p {
+  color: var(--muted);
+  font-size: 0.89rem;
+}
+.comments-head p {
+  margin-top: 4px;
+}
+.comment-write,
+#more-comments {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border-radius: 8px;
+  font-size: 0.89rem;
+  font-weight: 650;
+  min-height: 42px;
+  padding: 8px 14px;
+}
+.comment-write {
+  background: var(--green);
+  color: white;
+}
+.comment-write span {
+  font-size: 1.12rem;
+  line-height: 1;
+}
+#comments-status,
+.comments noscript p {
+  border-top: 1px solid var(--rule);
+  margin-top: 18px;
+  padding-top: 16px;
+}
+#comment-list {
+  padding: 0;
+  margin-top: 16px;
+  list-style: none;
+}
+#comment-list li {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  border-top: 1px solid var(--rule);
+  padding: 17px 0;
+}
+#comment-list li:last-child {
+  padding-bottom: 0;
+}
+.comment-avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e7f0e8;
+  color: #285a47;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+.comment-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 10px;
+}
+.comment-meta bdi {
+  font-size: 0.91rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.comment-meta time {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.comment-text {
+  margin-top: 3px;
+  max-width: 78ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.52;
+  font-size: 0.98rem;
+}
+#more-comments {
+  margin-top: 19px;
+  border: 1px solid var(--rule);
+}
+@media (max-width: 700px) {
+  .comments {
+    margin-top: 15px;
+    padding: 18px 16px;
+  }
+}
 .stat-top {
   font-size: 0.94rem;
   font-weight: 600;
@@ -1177,5 +1286,28 @@ dialog p {
     height: 74%;
     right: -5%;
     bottom: -5%;
+  }
+}
+@media (max-width: 520px) {
+  .nav {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 12px;
+    padding-block: 10px 8px;
+  }
+  .nav .about {
+    grid-area: 1 / 2;
+  }
+  .nav nav {
+    grid-column: 1 / -1;
+    margin: 0;
+    gap: 20px;
+    font-size: 0.84rem;
+  }
+  .nav nav a:first-child {
+    display: inline;
+  }
+  .nav nav a {
+    padding-block: 3px;
   }
 }

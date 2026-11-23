@@ -1,4 +1,4 @@
-"""Refresh only the public snapshot. A failed check leaves the last good version online."""
+"""Refresh the performance snapshot and the separately moderated comment feed."""
 
 import argparse
 import base64
@@ -8,18 +8,20 @@ import sys
 from pathlib import Path
 
 if __package__:
+    from .comments import approved_comments
     from .snapshot import snapshot
 else:
+    from comments import approved_comments
     from snapshot import snapshot
 
 
 PUBLIC_REPO = "repos/GiladR1979/gilad-markets"
 
 
-def github(exe, endpoint, *, body=None):
+def github(exe, endpoint, *, body=None, method="PUT"):
     command = [exe, "api", endpoint]
     if body is not None:
-        command.extend(["--method", "PUT", "--input", "-"])
+        command.extend(["--method", method, "--input", "-"])
     result = subprocess.run(
         command,
         capture_output=True,
@@ -54,14 +56,18 @@ def refresh(ledger, repository, gh):
     if not changed and new["checked"] - old["checked"] < 6 * 3600:
         print("Checked. Published data is current.")
         return
+    publish_json(gh, endpoint, previous, new, "Refresh closed-market performance")
+
+
+def publish_json(gh, endpoint, previous, data, message):
     encoded = (
-        json.dumps(new, ensure_ascii=False, separators=(",", ":")) + "\n"
+        json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode()
     result = github(
         gh,
         endpoint,
         body={
-            "message": "Refresh closed-market performance",
+            "message": message,
             "branch": "main",
             "sha": previous["sha"],
             "content": base64.b64encode(encoded).decode("ascii"),
@@ -73,15 +79,44 @@ def refresh(ledger, repository, gh):
     print("Verified published snapshot " + result["commit"]["sha"][:12])
 
 
+def refresh_comments(gh):
+    endpoint = PUBLIC_REPO + "/contents/docs/comments.json"
+    previous = github(gh, endpoint + "?ref=main")
+
+    def query(document, variables):
+        response = github(
+            gh,
+            "graphql",
+            method="POST",
+            body={"query": document, "variables": variables},
+        )
+        if response.get("errors"):
+            raise RuntimeError("GitHub could not verify comment approvals")
+        return response["data"]
+
+    comments = approved_comments(query)
+    if comments != json.loads(snapshot_bytes(gh, previous)):
+        publish_json(
+            gh, endpoint, previous, comments, "Update moderated dashboard comments"
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--gh", default="gh")
     parser.add_argument("--tag-repo", required=True)
     args = parser.parse_args()
+    failed = False
+    try:
+        refresh_comments(args.gh)
+    except Exception as exc:
+        print("Comment refresh failed (" + type(exc).__name__ + ").", file=sys.stderr)
+        failed = True
     try:
         refresh(args.ledger, args.tag_repo, args.gh)
     except Exception as exc:
         # HTTP exceptions may contain the request URL and account identifier.
         print("Snapshot refresh failed (" + type(exc).__name__ + ").", file=sys.stderr)
-        sys.exit(1)
+        failed = True
+    sys.exit(int(failed))
