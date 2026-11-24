@@ -427,8 +427,120 @@ footer {
 }
 .charts {
   display: grid;
-  grid-template-columns: minmax(0, 2.25fr) minmax(230px, 1fr);
+  grid-template-columns: minmax(0, 1.92fr) minmax(240px, 1fr);
+  grid-template-areas: "chart portrait" "outcomes portrait";
+  grid-template-rows: minmax(min-content, 1fr) auto;
   gap: 15px;
+}
+.chart-card {
+  grid-area: chart;
+  display: flex;
+  flex-direction: column;
+}
+.outcome {
+  grid-area: outcomes;
+}
+.apy-card {
+  grid-area: portrait;
+  min-width: 0;
+  align-self: start;
+  overflow: hidden;
+}
+.apy-portrait {
+  position: relative;
+  isolation: isolate;
+  container-type: inline-size;
+  aspect-ratio: 2 / 3;
+  color: #fffdf7;
+  background: #142f2b;
+}
+.apy-portrait img,
+.apy-portrait::after {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.apy-portrait img {
+  object-fit: cover;
+}
+.apy-portrait::after {
+  content: "";
+  background: linear-gradient(
+    155deg,
+    #081717d6 0%,
+    #08171771 23%,
+    transparent 47%
+  );
+}
+.apy-overlay {
+  position: relative;
+  z-index: 1;
+  padding: clamp(17px, 6cqi, 30px);
+  text-shadow: 0 1px 6px #06121966;
+}
+.apy-overlay h3 {
+  color: #fffdf7;
+  font-size: clamp(0.75rem, 3.6cqi, 1rem);
+  font-weight: 600;
+  letter-spacing: 0.015em;
+}
+#apy-value {
+  display: block;
+  margin-top: 0.08em;
+  font-size: clamp(1.15rem, var(--apy-value-size, 16cqi), 4.8rem);
+  font-weight: 650;
+  line-height: 1;
+  letter-spacing: -0.065em;
+  white-space: nowrap;
+}
+.apy-card[data-tier="unavailable"] .apy-portrait {
+  aspect-ratio: auto;
+  min-height: 120px;
+}
+.apy-caption {
+  padding: 15px clamp(15px, 1.4vw, 22px);
+}
+#apy-sample {
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+#apy-details {
+  margin-top: 4px;
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+#apy-details summary {
+  width: fit-content;
+  cursor: pointer;
+  padding-block: 3px;
+  font-weight: 550;
+}
+#apy-details summary:focus-visible {
+  outline: 3px solid #887426;
+  outline-offset: 3px;
+}
+#apy-details p {
+  margin-top: 9px;
+}
+#apy-inputs {
+  border-block: 1px solid var(--rule);
+  margin-top: 8px;
+  padding: 7px 0;
+}
+#apy-inputs > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 3px;
+}
+#apy-inputs dt {
+  flex-shrink: 0;
+}
+#apy-inputs dd {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
 }
 .chart-card,
 .outcome {
@@ -493,6 +605,7 @@ select,
 }
 .chart-wrap {
   height: 203px;
+  flex: 1 0 203px;
   position: relative;
   margin: 14px 0 4px;
 }
@@ -596,6 +709,67 @@ select,
 .outcome dd {
   font-weight: 650;
   font-variant-numeric: tabular-nums;
+}
+@media (min-width: 701px) {
+  .outcome {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 0 18px;
+    align-items: center;
+  }
+  .outcome h3,
+  .outcome > p {
+    grid-column: 1 / -1;
+  }
+  .outcome .ring {
+    width: 88px;
+    height: 88px;
+    margin: 10px 0 0;
+  }
+  .outcome .ring > div {
+    width: 68px;
+    height: 68px;
+  }
+  .outcome .ring strong {
+    font-size: 1.35rem;
+  }
+  .outcome .ring span {
+    font-size: 0.73rem;
+  }
+  .outcome dl {
+    margin: 10px 0 0;
+  }
+}
+@media (min-width: 1024px) {
+  .outcome {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1.4fr);
+    column-gap: 26px;
+  }
+  .outcome h3 {
+    grid-area: 1 / 1;
+    align-self: end;
+  }
+  .outcome > p {
+    grid-area: 2 / 1;
+    align-self: start;
+  }
+  .outcome .ring {
+    grid-area: 1 / 2 / span 2;
+    margin: 0;
+  }
+  .outcome dl {
+    grid-area: 1 / 3 / span 2;
+    margin: 0;
+  }
+}
+@media (min-width: 521px) and (max-width: 700px) {
+  .apy-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .apy-caption {
+    align-self: center;
+  }
 }
 .dot {
   width: 8px;
@@ -1147,10 +1321,13 @@ dialog p {
   }
   .charts {
     grid-template-columns: 1fr;
+    grid-template-areas: "chart" "portrait" "outcomes";
+    grid-template-rows: auto;
     gap: 10px;
   }
   .chart-wrap {
     height: 190px;
+    flex: none;
   }
   .outcome {
     display: grid;

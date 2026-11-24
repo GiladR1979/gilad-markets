@@ -140,6 +140,10 @@ function renderOutcomes(rows) {
     : "#dfe4da";
 }
 
+function inPerformanceWindow(row) {
+  return !days || resultTime(row) >= data.checked - days * day;
+}
+
 function draw() {
   if (!data) return;
   const plot = byId("plot");
@@ -151,7 +155,7 @@ function draw() {
     : scoped.length
       ? resultTime(scoped[scoped.length - 1]) - 1
       : end - day;
-  const rows = scoped.filter((r) => resultTime(r) >= start);
+  const rows = scoped.filter(inPerformanceWindow);
   renderOutcomes(rows);
   const total = sum(rows);
   byId("windowResult").textContent = "Period P&L  " + cash(total);
@@ -392,6 +396,10 @@ function filterList() {
   );
   page = 0;
   renderList();
+  updateApy();
+}
+function updateApy() {
+  renderApyCard(dealApy.calculate(visible.filter(inPerformanceWindow)));
 }
 function changeScope() {
   if (!data) return;
@@ -419,6 +427,7 @@ for (const button of document.querySelectorAll("[data-days]"))
     for (const other of document.querySelectorAll("[data-days]"))
       other.setAttribute("aria-pressed", String(button === other));
     draw();
+    if (data) updateApy();
   });
 byId("about").addEventListener("click", () => byId("notes").showModal());
 byId("close").addEventListener("click", () => byId("notes").close());
@@ -492,6 +501,8 @@ async function loadSnapshot() {
     if (!data) {
       byId("pageInfo").textContent = "Data unavailable";
       byId("updated").textContent = "Snapshot unavailable";
+      byId("apy-sample").textContent =
+        "The performance snapshot is unavailable.";
     }
   }
 }

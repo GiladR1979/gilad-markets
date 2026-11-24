@@ -10,10 +10,12 @@
     />
     <title>האם הגלעד מליונר? · Gilad Markets</title>
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="dashboard.css?v=crash-time" />
+    <link rel="stylesheet" href="dashboard.css?v=deal-apy" />
     <script src="comments.js" defer></script>
     <script src="deal-cards.js?v=crash-end" defer></script>
-    <script src="dashboard.js?v=crash-time" defer></script>
+    <script src="deal-apy.js?v=bankroll" defer></script>
+    <script src="apy-card.js?v=bankroll" defer></script>
+    <script src="dashboard.js?v=deal-apy" defer></script>
   </head>
   <body>
     <a class="skip" href="#performance">Skip to performance</a>
@@ -81,7 +83,10 @@
           </select></label
         >
       </div>
-      <section class="charts" aria-label="Performance charts">
+      <section
+        class="charts"
+        aria-label="Performance charts and estimated yield"
+      >
         <div class="panel chart-card">
           <div class="panel-head">
             <div>
@@ -114,6 +119,67 @@
             ><span id="windowResult">—</span>
           </div>
         </div>
+        <article
+          class="panel apy-card"
+          id="apy"
+          aria-labelledby="apy-heading"
+          data-tier="unavailable"
+        >
+          <div class="apy-portrait">
+            <img
+              id="apy-image"
+              width="1024"
+              height="1536"
+              alt=""
+              decoding="async"
+              hidden
+            />
+            <div class="apy-overlay">
+              <h3 id="apy-heading">Estimated bankroll APY</h3>
+              <output id="apy-value" aria-labelledby="apy-heading">—</output>
+            </div>
+          </div>
+          <div class="apy-caption">
+            <p id="apy-sample" role="status">Reading deal history…</p>
+            <details id="apy-details">
+              <summary>Calculation details</summary>
+              <dl id="apy-inputs" hidden>
+                <div>
+                  <dt>Starting account equity</dt>
+                  <dd id="apy-equity"></dd>
+                </div>
+                <div id="apy-equity-at-row" hidden>
+                  <dt>Equity observed</dt>
+                  <dd><time id="apy-equity-at"></time></dd>
+                </div>
+                <div>
+                  <dt>Net deal P&amp;L</dt>
+                  <dd id="apy-pnl"></dd>
+                </div>
+                <div id="apy-period-return-row" hidden>
+                  <dt>Period return</dt>
+                  <dd id="apy-period-return"></dd>
+                </div>
+                <div>
+                  <dt id="apy-period-label">Observed period</dt>
+                  <dd id="apy-period"></dd>
+                </div>
+              </dl>
+              <p>
+                The period return divides the selected closed deals’ net P&amp;L
+                by the verified account equity observed before the earliest
+                selected entry.
+              </p>
+              <p>
+                We measure from that equity observation to the last selected
+                close. The annual percentage yield assumes the period return
+                repeats over 365 days with gains reinvested. A short period can
+                produce an extreme estimate. The method, date range and ledger
+                filters select the deals.
+              </p>
+            </details>
+          </div>
+        </article>
         <div class="panel outcome">
           <h3>Deal outcomes</h3>
           <p id="outcomePeriod">All time</p>

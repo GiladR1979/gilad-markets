@@ -377,8 +377,10 @@ def build(
 def snapshot(ledger, repository, gh, *, price_cache=None):
     if __package__:
         from .deal_history import populate
+        from .opening_equity import attach_opening_equity
     else:
         from deal_history import populate
+        from opening_equity import attach_opening_equity
     tag, commit = release_tag(repository, gh)
     wallet, method, start, sizes, latest = release_and_entries(ledger, commit)
     rows = fetch_positions(wallet, "CLOSED") + fetch_positions(wallet, "OPEN")
@@ -399,6 +401,12 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
         price_cache or Path(__file__).resolve().parents[1] / ".local" / "price-cache-v1"
     )
     populate(history_jobs, wallet, cache)
+    attach_opening_equity(
+        ledger,
+        wallet,
+        result["deals"],
+        cache.parent / "verified-opening-equity-v1.json",
+    )
     return {**result, "tag": tag, "commit": commit}
 
 
