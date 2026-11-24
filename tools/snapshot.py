@@ -237,19 +237,52 @@ def price_rule_loss(legs):
     }
 
 
-def build(
-    rows, method, start, sizes, latest, now, *, history_jobs=None, settlements=None
-):
-    markets, tokens = collections.defaultdict(list), {}
+def reconcile_positions(rows):
+    """Count one holding when both provider views report the same accounting."""
+    accounting = (
+        "proxy_wallet",
+        "condition_id",
+        "outcome_index",
+        "opposite_token_id",
+        "first_entry_at",
+        "last_event_at",
+        "total_size",
+        "current_size",
+        "avg_price",
+        "entry_cost_usdc",
+        "entry_fees_usdc",
+        "total_cost_usdc",
+        "realized_pnl",
+    )
+    tokens = {}
     for row in rows:
         token = row["token_id"]
-        if token in tokens:
-            if tokens[token] == row:
-                continue
+        previous = tokens.get(token)
+        if previous is None or previous == row:
+            tokens[token] = row
+            continue
+        active, closed = (
+            (previous, row) if row["status"] == "CLOSED" else (row, previous)
+        )
+        if (
+            closed["status"] != "CLOSED"
+            or active["status"] not in {"OPEN", "REDEEMABLE"}
+            or any(active.get(k) != closed.get(k) for k in accounting)
+        ):
             raise ValueError(
                 "Position moved between lifecycle views; retry next refresh"
             )
-        tokens[token] = row
+        # The closed view reports realized returns even when shares remain. The
+        # active view carries the mark and remaining basis for those same shares.
+        tokens[token] = active if number(active["current_size"]) > 0 else closed
+    return tokens.values()
+
+
+def build(
+    rows, method, start, sizes, latest, now, *, history_jobs=None, settlements=None
+):
+    markets = collections.defaultdict(list)
+    for row in reconcile_positions(rows):
         if number(row["current_size"]) < 0 or number(row["total_size"]) <= 0:
             raise ValueError("Unexpected position quantity")
         if row["status"] not in {"CLOSED", "OPEN", "REDEEMABLE"}:

@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 
+from tools.settlement import Settlement
 from tools.snapshot import build, matched, release_tag
 
 
@@ -60,6 +61,57 @@ def test_share_precision_and_overlapping_views():
     assert len(build([row, row], "Ranked buy", 110, {}, {}, 200)["deals"]) == 1
     with pytest.raises(ValueError, match="lifecycle"):
         build([row, {**row, "current_size": 2}], "Ranked buy", 110, {}, {}, 200)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("active_status", ["OPEN", "REDEEMABLE"])
+def test_partially_closed_token_appears_in_both_views(reverse, active_status):
+    closed = dict(
+        leg("a", "1", "3.4784", quantity="0.4538", bought="25.3"),
+        avg_price="0.36",
+        total_cost_usdc="0.1633",
+        unrealized_pnl="0",
+    )
+    active = dict(
+        closed, status=active_status, current_price="0.0255", unrealized_pnl="-0.1518"
+    )
+    peer = leg("a", "2", "-2.733")
+    independent = dict(leg("b", "3", "0.4236"), title="Independent close")
+    rows = [active, closed] if reverse else [closed, active]
+    rows += [peer, independent]
+    result = build(rows, "Tagged", None, {}, {}, 200)
+    assert [(r["market"], r["pnl"]) for r in result["deals"]] == [
+        ("Independent close", 4236)
+    ]
+    assert not result["provisional"]
+    settled = build(
+        rows,
+        "Tagged",
+        None,
+        {},
+        {},
+        200,
+        settlements={"a": Settlement(180, {"1": Decimal(0), "2": Decimal(1)})},
+    )
+    assert [(r["market"], r["pnl"], r["legs"]) for r in settled["deals"]] == [
+        ("A market", 5821, 2),
+        ("Independent close", 4236, 1),
+    ]
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"condition_id": "other"},
+        {"current_size": 1},
+        {"realized_pnl": 3},
+        {"last_event_at": 155},
+    ],
+)
+def test_distinct_accounting_in_two_views_still_rejects_inconsistent_snapshot(changed):
+    row = leg("a", "1", 2, quantity=2)
+    with pytest.raises(ValueError, match="lifecycle"):
+        build([row, {**row, "status": "OPEN", **changed}], "Tagged", None, {}, {}, 200)
 
 
 def test_tag_order_uses_release_number_across_pages(monkeypatch):
