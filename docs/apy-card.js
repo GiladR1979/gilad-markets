@@ -45,7 +45,11 @@ function renderApyCard(estimate) {
   const card = byId("apy"),
     image = byId("apy-image"),
     value = byId("apy-value");
+  const funded = estimate.flowCount > 0;
   card.dataset.tier = tier ?? "unavailable";
+  byId("apy-heading").textContent = funded
+    ? "Money-weighted bankroll APY"
+    : "Estimated bankroll APY";
   if (tier && image.dataset.tier !== tier) {
     image.src = "apy/" + tier + ".webp";
     image.alt = apyPortraits[tier];
@@ -82,19 +86,29 @@ function renderApyCard(estimate) {
   } else if (reason === "no-duration") {
     sample.textContent =
       "APY unavailable. The equity observation and final close have the same timestamp.";
-  } else if (
-    reason === "invalid-return" &&
-    estimate.equity > 0 &&
-    estimate.pnl < -estimate.equity
-  ) {
+  } else if (reason === "missing-flows") {
     sample.textContent =
-      "Losses exceed the opening bankroll, so this return cannot be compounded.";
+      "APY unavailable. External funding could not be verified for the full period.";
+  } else if (reason && estimate.lossExceedsCapital) {
+    sample.textContent =
+      estimate.pnl < 0
+        ? "Losses exceed the opening bankroll plus net funding, so this return cannot be compounded."
+        : "The selected deals and transfers imply a negative ending balance. APY is unavailable.";
+  } else if (reason === "ambiguous-return") {
+    sample.textContent =
+      "The transfer dates and ending balance imply multiple annualized rates. There is no unique APY.";
+  } else if (reason === "no-return") {
+    sample.textContent =
+      "APY unavailable. No annualized rate fits the dated transfers and estimated ending balance.";
+  } else if (reason === "unresolved-return") {
+    sample.textContent =
+      "APY unavailable. A reliable annualized rate could not be established for these transfers.";
   } else if (reason) {
     sample.textContent =
       "APY unavailable. The combined return cannot be compounded.";
   } else {
     sample.textContent =
-      "Period return " +
+      (funded ? "Money-weighted return " : "Period return ") +
       estimate.periodText +
       " over " +
       apyDuration(days) +
@@ -119,6 +133,16 @@ function renderApyCard(estimate) {
     }
     byId("apy-pnl").textContent =
       estimate.pnl == null ? "Unavailable" : cash(estimate.pnl);
+    byId("apy-funding").textContent =
+      estimate.flowCount == null || estimate.netFlows == null
+        ? "Unverified"
+        : cash(estimate.netFlows) +
+          " · " +
+          estimate.flowCount.toLocaleString() +
+          (estimate.flowCount === 1 ? " transfer" : " transfers");
+    byId("apy-return-label").textContent = funded
+      ? "Money-weighted return"
+      : "Period return";
     byId("apy-period-return-row").hidden = estimate.periodText == null;
     byId("apy-period-return").textContent = estimate.periodText ?? "";
     byId("apy-period-label").textContent =

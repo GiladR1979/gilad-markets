@@ -376,9 +376,11 @@ def build(
 
 def snapshot(ledger, repository, gh, *, price_cache=None):
     if __package__:
+        from .bankroll_flows import FundingHistoryUnavailable, fetch_external_flows
         from .deal_history import populate
         from .opening_equity import attach_opening_equity
     else:
+        from bankroll_flows import FundingHistoryUnavailable, fetch_external_flows
         from deal_history import populate
         from opening_equity import attach_opening_equity
     tag, commit = release_tag(repository, gh)
@@ -407,6 +409,25 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
         result["deals"],
         cache.parent / "verified-opening-equity-v1.json",
     )
+    # Only publish transfers that could affect a selectable closed-deal period.
+    beginnings = [
+        row["history"]["openingEquity"]["at"]
+        for row in result["deals"]
+        if "openingEquity" in row["history"]
+    ]
+    if beginnings:
+        first = min(beginnings)
+        last = max(row["closed"] for row in result["deals"])
+        try:
+            flows = fetch_external_flows(wallet, result["checked"])
+        except FundingHistoryUnavailable:
+            # A missing transfer history makes annualization unavailable. Other
+            # verified financial results can still be published on schedule.
+            result["externalFlows"] = None
+        else:
+            result["externalFlows"] = [
+                flow for flow in flows if first < flow["at"] <= last
+            ]
     return {**result, "tag": tag, "commit": commit}
 
 

@@ -3,7 +3,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 require("../docs/deal-apy.js");
-const { calculate, tierFor } = globalThis.dealApy;
+const { calculate: withFunding, tierFor } = globalThis.dealApy;
+const calculate = (rows) => withFunding(rows, []);
 const start = 1700000000;
 const day = 86400;
 const year = 365 * day;
@@ -183,4 +184,116 @@ test("short profitable or losing trades have meaningful labels at floating-point
     new RegExp("^[1-9](?:[.][0-9]{1,2})?e[+]" + exp + "%$"),
   );
   assert.equal(calculate([deal(100, -50, start, start + 1)]).text, "≈−100%");
+});
+
+test("requires complete funding evidence and reports the selected window only", () => {
+  const rows = [deal(1000, 120)];
+  assert.equal(withFunding(rows).reason, "missing-flows");
+  assert.equal(withFunding(rows, null).netFlows, null);
+  assert.equal(
+    withFunding(rows, [{ at: start, amount: null }]).flowCount,
+    null,
+  );
+  const value = withFunding(rows, [
+    { at: start - 1, amount: 500 },
+    { at: start, amount: 500 },
+    { at: start + year, amount: 300 },
+    { at: start + year + 1, amount: 700 },
+  ]);
+  assert.equal(value.percent, 12);
+  assert.equal(value.flowCount, 1);
+  assert.equal(value.netFlows, 300);
+});
+
+test("deposits earn the rate only after they arrive", () => {
+  // After year one $100 has grown to $110. Add $50, then grow to $176.
+  const rows = [deal(10000, 2600, start, start + 2 * year)];
+  const value = withFunding(rows, [{ at: start + year, amount: 5000 }]);
+  assert.ok(Math.abs(value.percent - 10) < 1e-10);
+  assert.equal(value.periodText, "+21%");
+  const split = withFunding(rows, [
+    { at: start + year, amount: 7000 },
+    { at: start + year, amount: -2000 },
+  ]);
+  assert.equal(split.percent, value.percent);
+  assert.equal(split.flowCount, 2);
+  assert.equal(split.netFlows, 5000);
+});
+
+test("funded exact annual portrait boundaries and tiny material returns stay stable", () => {
+  const boundary = withFunding(
+    [deal(100, 400)],
+    [{ at: start + year / 2, amount: 100 }],
+  );
+  assert.equal(boundary.percent, 300);
+  assert.equal(boundary.tier, "programmer");
+  const tiny = withFunding(
+    [deal(8e15, 1)],
+    [{ at: start + year / 2, amount: 100 }],
+  );
+  assert.ok(Math.abs(tiny.percent / (100 / (8e15 + 50)) - 1) < 1e-12);
+});
+
+test("supports withdrawals, including alternating deposits, losses and a full payout", () => {
+  const mixed = withFunding(
+    [deal(100, 690, start, start + 3 * year)],
+    [
+      { at: start + year, amount: -20 },
+      { at: start + 2 * year, amount: 50 },
+    ],
+  );
+  assert.equal(mixed.percent, 100);
+  assert.equal(mixed.periodText, "+700%");
+  const loss = withFunding(
+    [deal(10000, -6500, start, start + 2 * year)],
+    [{ at: start + year, amount: -2000 }],
+  );
+  assert.ok(Math.abs(loss.percent + 50) < 1e-10);
+  const payout = withFunding(
+    [deal(100, 10, start, start + 2 * year)],
+    [{ at: start + year, amount: -110 }],
+  );
+  assert.ok(Math.abs(payout.percent - 10) < 1e-10);
+  assert.equal(payout.periodText, "+21%");
+});
+
+test("identifies multiple genuine rates and a nonconventional schedule with no real rate", () => {
+  // Annual growth factors 1.1, 1.2 and 1.5 all explain these same cash flows.
+  const row = deal(100, 1, start, start + 3 * year);
+  const multiple = withFunding(
+    [row],
+    [
+      { at: start + year, amount: -380 },
+      { at: start + 2 * year, amount: 477 },
+    ],
+  );
+  assert.equal(multiple.reason, "ambiguous-return");
+  assert.equal(multiple.tier, null);
+  // 100*x^2 - 100*x + 30 is positive for every positive growth factor x.
+  const none = withFunding(
+    [deal(100, -30, start, start + 2 * year)],
+    [
+      { at: start + year, amount: -100 },
+      { at: start + 2 * year, amount: 50 },
+    ],
+  );
+  assert.equal(none.reason, "no-return");
+  assert.equal(none.lossExceedsCapital, false);
+});
+
+test("funded total losses, absent terminal wealth and extreme positive annualization", () => {
+  const funds = [{ at: start + day, amount: 100 }];
+  const wiped = withFunding([deal(100, -200)], funds);
+  assert.equal(wiped.periodText, "−100%");
+  assert.equal(wiped.percent, -100);
+  const below = withFunding([deal(100, -201)], funds);
+  assert.equal(below.lossExceedsCapital, true);
+  assert.equal(below.periodText, null);
+  const huge = withFunding(
+    [deal(100, 1000, start, start + 2)],
+    [{ at: start + 1, amount: 100 }],
+  );
+  assert.equal(huge.percent, Infinity);
+  assert.equal(huge.tier, "commander");
+  assert.ok(!huge.text.includes("Infinity"));
 });

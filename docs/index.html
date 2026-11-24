@@ -13,9 +13,9 @@
     <link rel="stylesheet" href="dashboard.css?v=deal-apy" />
     <script src="comments.js" defer></script>
     <script src="deal-cards.js?v=crash-end" defer></script>
-    <script src="deal-apy.js?v=bankroll" defer></script>
-    <script src="apy-card.js?v=bankroll" defer></script>
-    <script src="dashboard.js?v=deal-apy" defer></script>
+    <script src="deal-apy.js?v=money-weighted" defer></script>
+    <script src="apy-card.js?v=money-weighted" defer></script>
+    <script src="dashboard.js?v=money-weighted" defer></script>
   </head>
   <body>
     <a class="skip" href="#performance">Skip to performance</a>
@@ -156,8 +156,12 @@
                   <dt>Net deal P&amp;L</dt>
                   <dd id="apy-pnl"></dd>
                 </div>
+                <div>
+                  <dt>Net external funding</dt>
+                  <dd id="apy-funding"></dd>
+                </div>
                 <div id="apy-period-return-row" hidden>
-                  <dt>Period return</dt>
+                  <dt id="apy-return-label">Period return</dt>
                   <dd id="apy-period-return"></dd>
                 </div>
                 <div>
@@ -166,16 +170,18 @@
                 </div>
               </dl>
               <p>
-                The period return divides the selected closed deals’ net P&amp;L
-                by the verified account equity observed before the earliest
-                selected entry.
+                We begin with verified account equity before the first selected
+                entry. At the last selected close, the calculation adds the
+                selected deals’ net P&amp;L and net external funding to that
+                opening balance to estimate ending equity.
               </p>
               <p>
-                We measure from that equity observation to the last selected
-                close. The annual percentage yield assumes the period return
-                repeats over 365 days with gains reinvested. A short period can
-                produce an extreme estimate. The method, date range and ledger
-                filters select the deals.
+                The money-weighted return accounts for each deposit or
+                withdrawal on its transfer date. The method, date range and
+                ledger filters select the trades. Funding covers the whole
+                account and excludes trading and settlement proceeds. The APY
+                expresses the return over a 365-day year with compounding. Short
+                periods can produce extreme annualized values.
               </p>
             </details>
           </div>

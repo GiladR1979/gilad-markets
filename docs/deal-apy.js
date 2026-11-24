@@ -41,12 +41,105 @@ globalThis.dealApy = (() => {
     return formatPercent(percent);
   }
 
-  function calculate(rows) {
+  // s is seconds remaining to close. Solve sum(c * exp(s / duration * x)) = 0,
+  // where x is the logarithm of the period growth factor.
+  function evaluate(terms, x, duration) {
+    const anchor = x > 0 ? terms.at(-1).s : terms[0].s;
+    // Near zero, small gains can disappear if exp(x) rounds to one.
+    const baseline =
+      x !== 0 && Math.abs(x) < 0.001 ? evaluate(terms, 0, duration) : null;
+    let sum = 0,
+      correction = 0,
+      size = 0;
+    for (const { s, c } of terms) {
+      const exponent = ((s - anchor) / duration) * x;
+      const value = c * (baseline ? Math.expm1(exponent) : Math.exp(exponent));
+      const next = sum + value;
+      correction +=
+        Math.abs(sum) >= Math.abs(value)
+          ? sum - next + value
+          : value - next + sum;
+      sum = next;
+      size += Math.abs(value);
+    }
+    return {
+      value: (baseline?.value ?? 0) + (sum + correction),
+      size: baseline?.size ?? size,
+    };
+  }
+
+  function bisect(terms, duration, lo, hi, signLo) {
+    for (let i = 0; i < 160; i++) {
+      const mid = lo + (hi - lo) / 2;
+      if (mid === lo || mid === hi) break;
+      const sign = Math.sign(evaluate(terms, mid, duration).value);
+      if (!sign) return mid;
+      if (sign === signLo) lo = mid;
+      else hi = mid;
+    }
+    return lo + (hi - lo) / 2;
+  }
+
+  function growthRoots(terms, duration, unique, depth = 0) {
+    const first = terms[0],
+      last = terms.at(-1);
+    const pivot = terms.findIndex((p) => Math.sign(p.c) !== Math.sign(first.c));
+    if (pivot < 0) return [];
+    // Outside these bounds the end coefficient dominates all the others.
+    const total = terms.reduce((n, p) => n + Math.abs(p.c), 0);
+    const lo =
+      (-duration * Math.log((2 * total) / Math.abs(first.c))) /
+      (terms[1].s - first.s);
+    const hi =
+      (duration * Math.log((2 * total) / Math.abs(last.c))) /
+      (last.s - terms.at(-2).s);
+    if (
+      unique ||
+      terms.slice(pivot).every((p) => Math.sign(p.c) === Math.sign(last.c))
+    ) {
+      if (evaluate(terms, 0, duration).value === 0) return [0];
+      return [bisect(terms, duration, lo, hi, Math.sign(first.c))];
+    }
+
+    // Dividing by the positive pivot exponential preserves roots. The derivative
+    // removes the pivot and a sign change. Its roots bound monotone intervals.
+    if (depth >= 24) return null;
+    const turn = terms[pivot].s;
+    const derivative = terms
+      .filter((p) => p.s !== turn)
+      .map(({ s, c }) => ({
+        s,
+        c: (c / total) * ((s - turn) / duration),
+      }));
+    const critical = growthRoots(derivative, duration, false, depth + 1);
+    if (!critical) return null;
+    const roots = [];
+    let left = lo,
+      leftSign = Math.sign(first.c);
+    for (const right of [...critical.filter((x) => lo < x && x < hi), hi]) {
+      const at = evaluate(terms, right, duration);
+      const sign = Math.sign(at.value);
+      // A near-tangent root cannot be distinguished from two close roots at
+      // machine precision. Never display an arbitrarily chosen rate.
+      if (right < hi && Math.abs(at.value) <= at.size * 8 * Number.EPSILON)
+        return null;
+      if (leftSign !== sign)
+        roots.push(bisect(terms, duration, left, right, leftSign));
+      left = right;
+      leftSign = sign;
+    }
+    return roots;
+  }
+
+  function calculate(rows, externalFlows) {
     const closed = rows.filter((r) => r.markedAt == null);
     const result = {
       percent: null,
       text: "—",
       periodText: null,
+      flowCount: null,
+      netFlows: null,
+      lossExceedsCapital: false,
       tier: null,
       reason: null,
       count: closed.length,
@@ -121,15 +214,90 @@ globalThis.dealApy = (() => {
       start: equityAt,
       days: elapsed / 86400,
     });
+    if (
+      !Array.isArray(externalFlows) ||
+      !externalFlows.every(
+        (f) =>
+          Number.isSafeInteger(f?.at) &&
+          f.at > 0 &&
+          Number.isSafeInteger(f.amount),
+      )
+    )
+      return { ...result, reason: "missing-flows" };
+    const byTime = new Map();
+    let netFlows = 0,
+      flowCount = 0;
+    for (const { at, amount } of externalFlows) {
+      if (at <= equityAt || at > end || !amount) continue;
+      const atTotal = (byTime.get(at) ?? 0) + amount;
+      netFlows += amount;
+      if (!Number.isSafeInteger(netFlows) || !Number.isSafeInteger(atTotal))
+        return { ...result, reason: "invalid-return" };
+      byTime.set(at, atTotal);
+      flowCount++;
+    }
+    Object.assign(result, { flowCount, netFlows });
     if (equity <= 0) return { ...result, reason: "invalid-return" };
-    const periodReturn = pnl / equity;
-    result.periodText =
-      (pnl > 0 ? "+" : "") + formatPercent(periodReturn * 100);
-    if (!elapsed) return { ...result, reason: "no-duration" };
-    if (pnl < -equity) return { ...result, reason: "invalid-return" };
-    const annualLogGrowth = Math.log1p(periodReturn) * (year / elapsed);
-    let percent = 100 * periodReturn;
-    if (elapsed !== year) {
+    const ending = equity + netFlows + pnl;
+    if (
+      !Number.isSafeInteger(ending) ||
+      !Number.isSafeInteger(equity + netFlows)
+    )
+      return { ...result, reason: "invalid-return" };
+    result.lossExceedsCapital = ending < 0;
+    const intermediate = [...byTime]
+      .filter(([at, amount]) => at < end && amount)
+      .sort(([a], [b]) => a - b);
+    let periodPercent, periodLog;
+    if (!intermediate.length) {
+      const periodReturn = pnl / equity;
+      periodPercent = 100 * periodReturn;
+      result.periodText = (pnl > 0 ? "+" : "") + formatPercent(periodPercent);
+      if (!elapsed) return { ...result, reason: "no-duration" };
+      if (ending < 0 || pnl < -equity)
+        return { ...result, reason: "invalid-return" };
+      periodLog = Math.log1p(periodReturn);
+    } else {
+      if (ending < 0) return { ...result, reason: "no-return" };
+      const terms = [{ s: elapsed, c: equity }];
+      let invested = equity,
+        leastInvested = equity;
+      for (const [at, amount] of intermediate) {
+        terms.push({ s: end - at, c: amount });
+        invested += amount;
+        if (!Number.isSafeInteger(invested))
+          return { ...result, reason: "invalid-return" };
+        leastInvested = Math.min(leastInvested, invested);
+      }
+      // A transfer at the valuation instant changes ending wealth one-for-one.
+      const receipt = ending - (byTime.get(end) ?? 0);
+      if (!Number.isSafeInteger(receipt))
+        return { ...result, reason: "invalid-return" };
+      if (receipt) terms.push({ s: 0, c: -receipt });
+      terms.reverse();
+      if (receipt === 0 && terms.every((p) => p.c > 0)) {
+        periodLog = -Infinity;
+      } else {
+        // Positive outstanding funding implies uniqueness on the gain side.
+        // For losses reverse the timeline: funding plus P&L must stay positive.
+        const unique = leastInvested + Math.min(0, pnl) > 0;
+        const roots = growthRoots(terms, elapsed, unique);
+        if (!roots) return { ...result, reason: "unresolved-return" };
+        if (roots.length !== 1)
+          return {
+            ...result,
+            reason: roots.length ? "ambiguous-return" : "no-return",
+          };
+        periodLog = roots[0];
+      }
+      periodPercent = 100 * Math.expm1(periodLog);
+      result.periodText =
+        (periodPercent > 0 ? "+" : "") +
+        percentText(periodPercent, periodLog, periodLog === -Infinity);
+    }
+    const annualLogGrowth = periodLog * (year / elapsed);
+    let percent = periodPercent;
+    if (elapsed !== year || intermediate.length) {
       percent = 100 * Math.expm1(annualLogGrowth);
       // Logarithm and exponent rounding can move an exact cutoff by a few ULPs.
       const cutoff = portraitCutoffs.find(
@@ -140,7 +308,7 @@ globalThis.dealApy = (() => {
     return {
       ...result,
       percent,
-      text: percentText(percent, annualLogGrowth, pnl === -equity),
+      text: percentText(percent, annualLogGrowth, periodLog === -Infinity),
       tier: tierFor(percent),
     };
   }

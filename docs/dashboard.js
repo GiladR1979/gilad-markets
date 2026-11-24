@@ -399,7 +399,9 @@ function filterList() {
   updateApy();
 }
 function updateApy() {
-  renderApyCard(dealApy.calculate(visible.filter(inPerformanceWindow)));
+  renderApyCard(
+    dealApy.calculate(visible.filter(inPerformanceWindow), data.externalFlows),
+  );
 }
 function changeScope() {
   if (!data) return;
