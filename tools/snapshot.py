@@ -9,12 +9,12 @@ import subprocess
 import time
 from decimal import Decimal
 from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
 if __package__:
+    from .deal_history import get_json
     from .settlement import lookup
 else:
+    from deal_history import get_json
     from settlement import lookup
 
 
@@ -151,12 +151,7 @@ def fetch_positions(wallet, state):
         params["include_archived"] = "true"
     seen_cursors, tokens, rows = set(), set(), []
     for _ in range(80):
-        request = Request(
-            API + "?" + urlencode(params),
-            headers={"User-Agent": "GiladPublicDashboard/1.0"},
-        )
-        with urlopen(request, timeout=15) as response:
-            page = json.load(response, parse_float=Decimal)
+        page = get_json(API, params, timeout=15)
         batch, pagination = page["data"], page["pagination"]
         if not isinstance(batch, list) or type(pagination["has_more"]) is not bool:
             raise ValueError("Incomplete positions page")
@@ -376,11 +371,11 @@ def build(
 
 def snapshot(ledger, repository, gh, *, price_cache=None):
     if __package__:
-        from .bankroll_flows import FundingHistoryUnavailable, fetch_external_flows
+        from .bankroll_flows import FundingHistoryUnavailable, funding_for_period
         from .deal_history import populate
         from .opening_equity import attach_opening_equity
     else:
-        from bankroll_flows import FundingHistoryUnavailable, fetch_external_flows
+        from bankroll_flows import FundingHistoryUnavailable, funding_for_period
         from deal_history import populate
         from opening_equity import attach_opening_equity
     tag, commit = release_tag(repository, gh)
@@ -419,7 +414,12 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
         first = min(beginnings)
         last = max(row["closed"] for row in result["deals"])
         try:
-            flows = fetch_external_flows(wallet, result["checked"])
+            flows = funding_for_period(
+                wallet,
+                result["checked"],
+                last,
+                cache.parent / "verified-funding-v1.sqlite3",
+            )
         except FundingHistoryUnavailable:
             # A missing transfer history makes annualization unavailable. Other
             # verified financial results can still be published on schedule.

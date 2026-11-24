@@ -141,3 +141,69 @@ def test_read_failure_is_distinct_from_verified_empty_history(monkeypatch, error
         flows.fetch_external_flows(WALLET, 10)
     monkeypatch.setattr(flows, "get_json", lambda *_: page([]))
     assert flows.fetch_external_flows(WALLET, 10) == []
+
+
+def simulate_outage(*_):
+    raise flows.FundingHistoryUnavailable("Activity provider unavailable")
+
+
+@pytest.mark.parametrize(
+    "records", [[], [{"at": 8, "amount": -12}, {"at": 10, "amount": 123}]]
+)
+def test_outage_uses_verified_coverage_only_for_the_right_wallet(
+    tmp_path, monkeypatch, records
+):
+    cache = tmp_path / "private" / "funding.sqlite3"
+    monkeypatch.setattr(flows, "fetch_external_flows", lambda *_: records)
+    earlier = [r for r in records if r["at"] <= 8]
+    assert flows.funding_for_period(WALLET, 10, 8, cache) == earlier
+    monkeypatch.setattr(flows, "fetch_external_flows", simulate_outage)
+    assert flows.funding_for_period(WALLET.upper(), 20, 8, cache) == earlier
+    assert flows.funding_for_period(WALLET, 20, 10, cache) == records
+    with pytest.raises(flows.FundingHistoryUnavailable):
+        flows.funding_for_period(WALLET, 20, 11, cache)
+    with pytest.raises(flows.FundingHistoryUnavailable):
+        flows.funding_for_period("0x" + "b" * 40, 20, 8, cache)
+
+
+def test_fresh_history_can_correct_or_remove_old_transfers(tmp_path, monkeypatch):
+    cache = tmp_path / "funding.sqlite3"
+    old = [{"at": 5, "amount": 125}, {"at": 6, "amount": 13}]
+    revised = [{"at": 5, "amount": 123}, {"at": 20, "amount": 55}]
+    monkeypatch.setattr(
+        flows,
+        "fetch_external_flows",
+        lambda wallet, checked: old if checked == 12 else revised,
+    )
+    assert flows.funding_for_period(WALLET, 12, 10, cache) == old
+    assert flows.funding_for_period(WALLET, 21, 15, cache) == revised[:1]
+    monkeypatch.setattr(flows, "fetch_external_flows", simulate_outage)
+    assert flows.funding_for_period(WALLET, 22, 21, cache) == revised
+
+
+def test_fresh_but_older_request_cannot_overwrite_newer_coverage(tmp_path, monkeypatch):
+    cache = tmp_path / "funding.sqlite3"
+    new = [{"at": 5, "amount": 5}, {"at": 20, "amount": 20}]
+    old = [{"at": 5, "amount": 2}]
+    monkeypatch.setattr(
+        flows, "fetch_external_flows", lambda w, t: new if t == 21 else old
+    )
+    assert flows.funding_for_period(WALLET, 21, 21, cache) == new
+    # An older request reaches the cache after a newer request already committed.
+    assert flows.funding_for_period(WALLET, 10, 9, cache) == new[:1]
+    monkeypatch.setattr(flows, "fetch_external_flows", simulate_outage)
+    assert flows.funding_for_period(WALLET, 30, 21, cache) == new
+
+
+def test_unusable_cache_cannot_hide_a_verified_live_result_or_fabricate_one(
+    tmp_path, monkeypatch
+):
+    cache = tmp_path / "funding.sqlite3"
+    cache.write_bytes(b"invalid cache")
+    monkeypatch.setattr(
+        flows, "fetch_external_flows", lambda *_: [{"at": 5, "amount": 1}]
+    )
+    assert flows.funding_for_period(WALLET, 10, 10, cache) == [{"at": 5, "amount": 1}]
+    monkeypatch.setattr(flows, "fetch_external_flows", simulate_outage)
+    with pytest.raises(flows.FundingHistoryUnavailable):
+        flows.funding_for_period(WALLET, 11, 10, cache)

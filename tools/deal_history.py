@@ -14,6 +14,7 @@ from contextlib import closing
 from decimal import Decimal
 from itertools import groupby, pairwise
 from typing import NamedTuple
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -23,13 +24,28 @@ DUST = Decimal("0.01")
 QUANTUM = Decimal("0.0001")
 
 
-def get_json(endpoint, params):
+def get_json(endpoint, params, *, timeout=14):
     request = Request(
         endpoint + "?" + urlencode(params),
         headers={"User-Agent": "GiladPublicDashboard/1.0"},
     )
-    with urlopen(request, timeout=14) as response:
-        return json.load(response, parse_float=Decimal)
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return json.load(response, parse_float=Decimal)
+        except HTTPError as exc:
+            exc.close()
+            if exc.code not in {408, 429, 500, 502, 503, 504} or attempt == 2:
+                raise
+            retry_after = exc.headers.get("Retry-After", "") if exc.headers else ""
+            delay = int(retry_after) if retry_after.isdigit() else 2**attempt
+            if delay > 30:
+                raise
+        except (URLError, TimeoutError, ConnectionError):
+            if attempt == 2:
+                raise
+            delay = 2**attempt
+        time.sleep(delay)
 
 
 def activity_by_market(wallet):

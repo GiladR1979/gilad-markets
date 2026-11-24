@@ -1,9 +1,13 @@
 """Read external cash flows for bankroll returns without publishing wallet identifiers."""
 
+import json
 import re
+import sqlite3
 from collections import defaultdict
+from contextlib import closing
 from decimal import Decimal
 from http.client import HTTPException
+from pathlib import Path
 
 if __package__:
     from .deal_history import UNIT, get_json
@@ -115,3 +119,84 @@ def fetch_external_flows(wallet, checked):
         if amount:
             flows.append({"at": at, "amount": amount})
     return flows
+
+
+def _cached_period(path, wallet, last_close, checked, live):
+    """Atomically replace a complete wallet history and read the best covered one."""
+    if live is None:
+        if not path.is_file():
+            return None
+        db = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(path, timeout=5)
+    with closing(db), db:
+        if live is not None:
+            db.execute("""CREATE TABLE IF NOT EXISTS funding_history (
+                wallet TEXT PRIMARY KEY, checked INTEGER NOT NULL, flows TEXT NOT NULL)""")
+            db.execute(
+                """INSERT INTO funding_history (wallet,checked,flows) VALUES (?,?,?)
+                ON CONFLICT(wallet) DO UPDATE SET checked=excluded.checked,flows=excluded.flows
+                WHERE excluded.checked >= funding_history.checked""",
+                (wallet, checked, json.dumps(live, separators=(",", ":"))),
+            )
+        row = db.execute(
+            "SELECT checked,flows FROM funding_history WHERE wallet=? AND checked>=?",
+            (wallet, last_close),
+        ).fetchone()
+    if row is None:
+        return None
+    through, payload = row
+    records = json.loads(payload)
+    if (
+        type(through) is not int
+        or through < last_close
+        or not isinstance(records, list)
+    ):
+        raise FundingHistoryUnavailable("Invalid cached funding coverage")
+    result, previous = [], 0
+    for entry in records:
+        if (
+            not isinstance(entry, dict)
+            or set(entry) != {"at", "amount"}
+            or type(entry["at"]) is not int
+            or not previous < entry["at"] <= through
+            or type(entry["amount"]) is not int
+            or not 0 < abs(entry["amount"]) <= MAX_PUBLIC_UNITS
+        ):
+            raise FundingHistoryUnavailable("Invalid cached funding history")
+        previous = entry["at"]
+        if previous <= last_close:
+            result.append(entry)
+    return result
+
+
+def funding_for_period(wallet, checked, last_close, cache_file):
+    """Return verified cash flows through last_close, including during an API outage."""
+    if type(last_close) is not int or last_close < 0:
+        raise ValueError("Invalid closing cutoff for funding history")
+    if last_close > checked:
+        raise FundingHistoryUnavailable("The funding period ends after this snapshot")
+    if last_close == 0:
+        return []
+    failure = None
+    try:
+        live = fetch_external_flows(wallet, checked)
+    except FundingHistoryUnavailable as exc:
+        failure, live = exc, None
+
+    if cache_file is not None:
+        try:
+            cached = _cached_period(
+                Path(cache_file), wallet.lower(), last_close, checked, live
+            )
+        except (OSError, sqlite3.Error, ValueError, TypeError):
+            # A cache failure leaves a complete, freshly fetched history usable.
+            cached = None
+        if cached is not None:
+            return cached
+    if live is None:
+        raise FundingHistoryUnavailable(
+            "No verified funding history covers this close"
+        ) from failure
+    return [entry for entry in live if entry["at"] <= last_close]
