@@ -54,7 +54,7 @@ def release_tag(repository, gh):
     return tag["name"], commit
 
 
-def release_and_entries(path, tagged_commit):
+def release_and_entries(path, tagged_commit, *, include_tag_status=False):
     with sqlite3.connect(
         path.resolve().as_uri() + "?mode=ro", uri=True, timeout=3
     ) as db:
@@ -135,7 +135,10 @@ def release_and_entries(path, tagged_commit):
                 ):
                     latest[key] += qty
         start = windows[0][0] if windows else None
-        return release["wallet"], method, start, sizes, latest
+        entries = release["wallet"], method, start, sizes, latest
+        if include_tag_status:
+            return (*entries, release["manifest"]["source_commit"] == tagged_commit)
+        return entries
 
 
 def fetch_positions(wallet, state):
@@ -292,7 +295,8 @@ def build(
         ):
             raise ValueError("Settlement identity or chronology mismatch")
         marked = None
-        if not settlement and any(number(r["current_size"]) >= DUST for r in legs):
+        material = any(number(r["current_size"]) >= DUST for r in legs)
+        if not settlement and material:
             marked = price_rule_loss(legs)
             if marked is None:
                 continue
@@ -318,7 +322,8 @@ def build(
                 if r["status"] != "CLOSED" and number(r["current_size"]) > 0
             )
             pnl += round(additional * PNL_SCALE)
-            last = max(last, settlement.closed)
+            if material:
+                last = max(last, settlement.closed)
         is_bot = all(matched(r, sizes) for r in legs)
         is_latest = (
             start is not None
@@ -339,10 +344,9 @@ def build(
             legs=len(legs),
             method=is_latest,
             verified=is_bot,
-            dust=all(number(r["current_size"]) < DUST for r in legs)
-            and any(number(r["current_size"]) > 0 for r in legs),
+            dust=not material and any(number(r["current_size"]) > 0 for r in legs),
         )
-        if settlement:
+        if settlement and material:
             deal["settled"] = True
         if marked:
             if last > now:
@@ -372,17 +376,23 @@ def build(
 def snapshot(ledger, repository, gh, *, price_cache=None):
     if __package__:
         from .bankroll_flows import FundingHistoryUnavailable, funding_for_period
-        from .deal_history import populate
+        from .deal_history import activity_by_market, populate
         from .opening_equity import attach_opening_equity
     else:
         from bankroll_flows import FundingHistoryUnavailable, funding_for_period
-        from deal_history import populate
+        from deal_history import activity_by_market, populate
         from opening_equity import attach_opening_equity
     tag, commit = release_tag(repository, gh)
-    wallet, method, start, sizes, latest = release_and_entries(ledger, commit)
+    wallet, method, start, sizes, latest, tag_active = release_and_entries(
+        ledger, commit, include_tag_status=True
+    )
     rows = fetch_positions(wallet, "CLOSED") + fetch_positions(wallet, "OPEN")
     if not rows:
         raise ValueError("Trading account history unavailable")
+    cache = (
+        price_cache or Path(__file__).resolve().parents[1] / ".local" / "price-cache-v1"
+    )
+    activity = activity_by_market(wallet)
     history_jobs = []
     result = build(
         rows,
@@ -392,12 +402,15 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
         latest,
         int(time.time()),
         history_jobs=history_jobs,
-        settlements=lookup(rows, DUST),
+        settlements=lookup(
+            rows,
+            DUST,
+            activity=activity,
+            cache_path=cache.parent / "confirmed-settlement-v1.sqlite3",
+        ),
     )
-    cache = (
-        price_cache or Path(__file__).resolve().parents[1] / ".local" / "price-cache-v1"
-    )
-    populate(history_jobs, wallet, cache)
+    populate(history_jobs, wallet, cache, activity=activity)
+    result["deals"].sort(key=lambda r: (-r["closed"], r["market"], r["pnl"]))
     attach_opening_equity(
         ledger,
         wallet,
@@ -428,7 +441,7 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
             result["externalFlows"] = [
                 flow for flow in flows if first < flow["at"] <= last
             ]
-    return {**result, "tag": tag, "commit": commit}
+    return {**result, "tag": tag, "commit": commit, "tagActive": tag_active}
 
 
 if __name__ == "__main__":

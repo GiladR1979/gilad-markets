@@ -136,12 +136,17 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
     purchased = balances.copy()
     averages = dict.fromkeys(tokens)
     intervals = []
+    exit_at = None
+    exit_reason = None
+    acquired_after_settlement = False
     for t, batch in groupby(
         sorted(events, key=lambda e: e["timestamp"]), key=lambda e: e["timestamp"]
     ):
         trade_prices = {}
         sales = {}
         added, removed = set(), set()
+        reductions = set()
+        material_purchase = False
         for event in batch:
             kind, token = event["type"], event.get("token_id")
             size, amount = Decimal(event["size"]), Decimal(event["usdc_size"])
@@ -157,6 +162,7 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
                 if not 0 <= price <= 1 or size <= 0:
                     return
                 if buy:
+                    material_purchase |= size >= DUST
                     prior = balances[token]
                     if prior <= 0:
                         averages[token] = price
@@ -168,6 +174,7 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
                 else:
                     sales[token] = min(price, sales.get(token, price))
                     removed.add(token)
+                    reductions.add(kind)
                 balances[token] += size if buy else -size
                 cash += -amount if buy else amount
                 if buy:
@@ -177,6 +184,11 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
             elif kind == "REDEEM" and token in balances:
                 balances[token] -= size
                 removed.add(token)
+                if size:
+                    reductions.add(kind)
+                    if amount <= size:
+                        payout = amount / size
+                        sales[token] = min(payout, sales.get(token, payout))
                 cash += amount
             elif kind in {"MERGE", "SPLIT"} and len(tokens) == 2:
                 if size != amount:
@@ -192,11 +204,30 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
                         removed.add(key)
                 cash += -amount if split else amount
                 if split:
+                    material_purchase |= size >= DUST
                     stake += amount
+                elif size:
+                    reductions.add(kind)
             else:
                 return
         if min(balances.values()) < -QUANTUM:
             return
+        largest = max(balances.values())
+        if largest >= DUST:
+            # A material reopening starts a new holding interval in this market.
+            exit_at = exit_reason = None
+        elif exit_at is None or material_purchase:
+            # The activity clock can group a material buy and its entire exit
+            # in the same second. That trading still supersedes an older exit.
+            exit_at, exit_reason = t, "dust" if largest > 0 else "exit"
+            if reductions == {"REDEEM"}:
+                # A confirmed redemption extinguishes exposure even when the
+                # provider timestamps its final market record a little later.
+                exit_reason = "settlement"
+        if settlement and t > settlement.closed and (
+            material_purchase or (added and largest >= DUST)
+        ):
+            acquired_after_settlement = True
         for token in added & removed:
             # Same-second mixed fills have no intra-second ordering in the activity API.
             averages[token] = None
@@ -253,8 +284,21 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
         tolerance = sum(r["current_size"] for r in legs) + rounding
         if abs(cash - sum(r["realized_pnl"] for r in legs)) > tolerance:
             return
-    if intervals[-1][0] < close:
-        # The last trade can precede a dust bookkeeping event or final settlement.
+    reason = None
+    if marked_at is None:
+        if (
+            settlement
+            and intervals[0].at <= settlement.closed
+            and not acquired_after_settlement
+            and (exit_at is None or settlement.closed <= exit_at)
+        ):
+            close, reason = settlement.closed, "settlement"
+        elif exit_at is not None:
+            close, reason = exit_at, exit_reason
+    # Verify the entire activity ledger first. Later dust disposals and payouts
+    # can finalize the amount without extending the time at market risk.
+    intervals = [point for point in intervals if point.at <= close]
+    if intervals[-1].at < close:
         if (
             not settlement
             and marked_at is None
@@ -262,13 +306,7 @@ def evidence(legs, events, settlement=None, final_units=None, marked_at=None):
         ):
             return
         intervals.append(Inventory(close, cash, tokens[0], Decimal(0), {}, {}, {}))
-    if settlement:
-        i = bisect.bisect_left([point[0] for point in intervals], settlement.closed)
-        if 0 < i < len(intervals) and intervals[i][0] > settlement.closed:
-            intervals.insert(
-                i, intervals[i - 1]._replace(at=settlement.closed, fills={}, sells={})
-            )
-    return intervals, float(stake)
+    return intervals, float(stake), reason
 
 
 def first_crash(intervals, tape, settlement):
@@ -367,7 +405,15 @@ def reconstruct(
     verified = evidence(legs, events, settlement, final_units, marked_at)
     if not verified:
         return out
-    intervals, stake = verified
+    intervals, stake, reason = verified
+    if reason:
+        end = intervals[-1].at
+        out["economicClose"] = end
+        out["closeReason"] = reason
+        if settlement and settlement.closed < end:
+            # Activity acquired material shares after the official close stamp.
+            # The verified later exit applies to this position.
+            settlement = None
     out["stake"] = money_units(stake)
     tapes = {}
 
@@ -504,8 +550,9 @@ def retain_crash_times(jobs, path):
                     deal["crashPnl"] = mark[0]
 
 
-def populate(jobs, wallet, cache):
-    activity = activity_by_market(wallet)
+def populate(jobs, wallet, cache, *, activity=None):
+    if activity is None:
+        activity = activity_by_market(wallet)
 
     def process(job):
         legs, deal, settlement = job
@@ -520,6 +567,17 @@ def populate(jobs, wallet, cache):
             final_units=deal["pnl"],
             marked_at=marked_at,
         )
+        history = deal["history"]
+        if "economicClose" in history:
+            deal["closed"] = history.pop("economicClose")
+            deal["closeReason"] = history.pop("closeReason")
+            if deal["closeReason"] == "settlement":
+                deal["settled"] = True
+            else:
+                deal.pop("settled", None)
+            booked = max(r["last_event_at"] for r in legs)
+            if booked > deal["closed"]:
+                deal["bookedAt"] = booked
 
     with ThreadPoolExecutor(max_workers=4) as workers:
         list(workers.map(process, jobs))

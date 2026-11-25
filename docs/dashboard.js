@@ -90,12 +90,16 @@ function updateSummary() {
   const marked = data.provisional ?? [];
   byId("ruleSummary").textContent = marked.length
     ? "Includes " + cash(sum(marked)) + " in provisional losses"
-    : "All methods · No provisional losses";
+    : "All account activity";
   setMoney("total", sum(results));
   setMoney("latest", sum(latest));
   if (data.methodSince === null) byId("latest").textContent = "Pending";
-  byId("methodName").textContent = data.tag;
-  byId("scope").querySelector('[value="method"]').textContent = data.tag;
+  const priorTag = data.tagActive === false && data.methodSince != null;
+  byId("methodName").textContent = priorTag
+    ? data.tag + " · Past deployment"
+    : data.tag;
+  byId("scope").querySelector('[value="method"]').textContent =
+    "Tag · " + data.tag;
   byId("methodCount").textContent =
     latest.length + (latest.length === 1 ? " deal" : " deals");
   byId("count").textContent = results.length.toLocaleString("en-US");
@@ -120,7 +124,9 @@ function updateSummary() {
         data.method.toLowerCase() +
         " method was activated on " +
         dateAt(data.methodSince, { dateStyle: "medium", timeStyle: "short" }) +
-        " UTC. Every outcome’s lifetime purchases must match confirmed bot buys originating from pairs opened under this release, within the API’s displayed share precision. “Ledger-matched bot” also includes earlier trades that reconcile to this execution ledger. Other closed markets appear in account history.";
+        " UTC. " +
+        (priorTag ? "The bot now runs another deployment. " : "") +
+        "Every outcome’s lifetime purchases must match confirmed bot buys originating from pairs opened under this release, within the API’s displayed share precision.";
 }
 
 function renderOutcomes(rows) {
@@ -140,24 +146,23 @@ function renderOutcomes(rows) {
     : "#dfe4da";
 }
 
-function inPerformanceWindow(row) {
-  return !days || resultTime(row) >= data.checked - days * day;
-}
-
 function draw() {
   if (!data) return;
   const plot = byId("plot");
   byId("tip").hidden = true;
   inspection = null;
   const end = data.checked;
+  const { points: bookings, total, contributing } = performanceSeries(
+    scoped,
+    days ? end - days * day : -Infinity,
+    end,
+  );
   const start = days
     ? end - days * day
-    : scoped.length
-      ? resultTime(scoped[scoped.length - 1]) - 1
+    : bookings.length
+      ? bookings[0].t - 1
       : end - day;
-  const rows = scoped.filter(inPerformanceWindow);
-  renderOutcomes(rows);
-  const total = sum(rows);
+  renderOutcomes(contributing);
   byId("windowResult").textContent = "Period P&L  " + cash(total);
   const w = Math.round(plot.getBoundingClientRect().width),
     h = Math.round(plot.getBoundingClientRect().height);
@@ -166,9 +171,9 @@ function draw() {
   plot.setAttribute("viewBox", `0 0 ${w} ${h}`);
   plot.setAttribute(
     "aria-label",
-    `Cumulative profit. ${rows.length} deals, period P&L ${cash(total)}. Use arrow keys to inspect dates.`,
+    `Cumulative profit. ${contributing.length} deals, period P&L ${cash(total)}. Use arrow keys to inspect dates.`,
   );
-  if (!rows.length) {
+  if (!bookings.length) {
     svg(
       "text",
       { x: w / 2, y: h / 2, "text-anchor": "middle", class: "empty-chart" },
@@ -181,13 +186,7 @@ function draw() {
     right = w - 9,
     top = 12,
     bottom = h - 27;
-  const points = [{ t: start, v: 0 }];
-  for (const r of [...rows].reverse()) {
-    const last = points[points.length - 1];
-    const t = resultTime(r);
-    if (last.t === t) last.v += r.pnl;
-    else points.push({ t, v: last.v + r.pnl });
-  }
+  const points = [{ t: start, v: 0 }, ...bookings];
   const values = points.map((p) => p.v / data.unit);
   const min = Math.min(0, ...values),
     max = Math.max(0, ...values);
@@ -389,7 +388,9 @@ function filterList() {
         (result === "crash" && r.crashAt != null) ||
         (result === "provisional" && r.markedAt != null) ||
         (result === "final" && r.closed != null) ||
-        (result === "settled" && r.settled) ||
+        (result === "settled" &&
+          r.closed != null &&
+          closeReason(r) === "settlement") ||
         (result === "win" && r.pnl > 0) ||
         (result === "loss" && r.pnl < 0) ||
         (result === "flat" && r.pnl === 0)),
@@ -399,16 +400,18 @@ function filterList() {
   updateApy();
 }
 function updateApy() {
-  renderApyCard(
-    dealApy.calculate(visible.filter(inPerformanceWindow), data.externalFlows),
-  );
+  const rows = days
+    ? visible.filter((r) => endpointTime(r) >= data.checked - days * day)
+    : visible;
+  renderApyCard(dealApy.calculate(rows, data.externalFlows));
 }
 function changeScope() {
   if (!data) return;
-  const field = byId("scope").value;
+  const select = byId("scope");
+  const field = select.value;
   scoped = field === "all" ? results : results.filter((r) => r[field]);
   byId("ledgerDesc").textContent =
-    `${scoped.length} markets · Newest first · Your local time`;
+    `${select.selectedOptions[0].textContent} · ${scoped.length} markets · Newest first · Your local time`;
   draw();
   filterList();
 }

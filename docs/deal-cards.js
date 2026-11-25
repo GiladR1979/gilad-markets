@@ -19,6 +19,20 @@ function axisMoney(units) {
   );
 }
 
+function dealTime(seconds) {
+  const date = new Date(seconds * 1000);
+  const time = span("time", "", localCloseTime.format(date));
+  time.dateTime = date.toISOString();
+  time.title = preciseCloseTime.format(date);
+  return time;
+}
+
+function closeReason(deal) {
+  if (deal.closeReason) return deal.closeReason;
+  if (deal.settled) return "settlement";
+  return deal.dust ? "dust" : "exit";
+}
+
 function plotScale(samples) {
   let low = 0,
     high = 0;
@@ -264,9 +278,11 @@ function renderDealCard(deal) {
       "result-label",
       deal.priceRule
         ? "Provisional loss · position open"
-        : deal.settled
+        : closeReason(deal) === "settlement"
           ? "Settlement P&L"
-          : "Realized P&L",
+          : deal.bookedAt > deal.closed
+            ? "Final P&L"
+            : "Realized P&L",
     ),
   );
   heading.append(result);
@@ -344,35 +360,35 @@ function renderDealCard(deal) {
     ),
   );
   const closed = span("div", "", "");
-  const closeDate = new Date(endpointTime(deal) * 1000);
-  const time = span("time", "", localCloseTime.format(closeDate));
-  time.dateTime = closeDate.toISOString();
-  time.title = preciseCloseTime.format(closeDate);
   closed.append(
     span(
       "span",
       "",
       deal.priceRule
         ? "Last marked"
-        : deal.settled
+        : closeReason(deal) === "settlement"
           ? "Settled"
-          : deal.dust
+          : closeReason(deal) === "dust"
             ? "Closed with dust"
             : "Closed",
     ),
-    time,
+    dealTime(endpointTime(deal)),
   );
   dates.append(opened, closed);
   card.append(top, info, dealPlot(deal, h));
   if (deal.crashAt != null) {
     const crossing = span("div", "crash-clock", "");
-    const date = new Date(deal.crashAt * 1000);
-    const observed = span("time", "", localCloseTime.format(date));
-    observed.dateTime = date.toISOString();
-    observed.title = preciseCloseTime.format(date);
-    crossing.append(span("span", "", "99% drop first observed"), observed);
+    crossing.append(
+      span("span", "", "99% drop first observed"),
+      dealTime(deal.crashAt),
+    );
     card.append(crossing);
   }
   card.append(dates);
+  if (deal.bookedAt > deal.closed) {
+    const booking = span("div", "deal-booking", "");
+    booking.append("Last booking ", dealTime(deal.bookedAt));
+    card.append(booking);
+  }
   return card;
 }

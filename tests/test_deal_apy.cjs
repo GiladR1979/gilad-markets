@@ -37,6 +37,19 @@ test("uses one opening bankroll for the cohort and the actual close dates", () =
   assert.equal(calculate([gain, loss]).percent, 10);
 });
 
+test("a later redemption leaves the economic close and funding cutoff intact", () => {
+  const loss = {
+    ...deal(10000, -1000),
+    closeReason: "settlement",
+    crashAt: start + year - day,
+    bookedAt: start + year + day,
+  };
+  const result = withFunding([loss], [{ at: loss.bookedAt, amount: 5000 }]);
+  assert.equal(result.end, loss.closed);
+  assert.equal(result.flowCount, 0);
+  assert.equal(result.percent, -10);
+});
+
 test("same-time openings select one latest agreeing observation", () => {
   const old = deal(100, 1),
     latest = deal(200, 1),

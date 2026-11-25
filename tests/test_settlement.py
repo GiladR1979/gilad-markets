@@ -1,8 +1,11 @@
 import json
 from decimal import Decimal
+from urllib.error import URLError
+
+import pytest
 
 from tools.deal_history import reconstruct
-from tools.settlement import Settlement, confirm
+from tools.settlement import Settlement, confirm, lookup
 from tools.snapshot import build
 
 
@@ -46,6 +49,40 @@ def test_equal_payout_needs_explicit_resolution():
     market["outcomePrices"] = '["0.5","0.5"]'
     assert set(confirm("m", book, [market]).payouts.values()) == {Decimal("0.5")}
     assert confirm("m", book, [{**market, "umaResolutionStatus": None}]) is None
+
+
+def test_material_redemption_looks_up_final_time_after_balance_is_zero(tmp_path, monkeypatch):
+    condition = "0x" + "a" * 64
+    row = {"condition_id": condition, "current_size": 0, "status": "CLOSED"}
+    activity = {condition: [{"type": "REDEEM", "size": Decimal("1.5")}]}
+    book, market = records()
+    book["condition_id"] = market["conditionId"] = condition
+    calls = []
+
+    def fetch(url, params):
+        calls.append(url)
+        return [market] if params else book
+
+    monkeypatch.setattr("tools.settlement.get_json", fetch)
+    cache = tmp_path / "confirmed.sqlite3"
+    first = lookup([row], Decimal(".01"), activity=activity, cache_path=cache)
+    assert first[condition].closed == 1795227248
+    assert lookup([row], Decimal(".01"), activity=activity, cache_path=cache) == first
+    assert len(calls) == 2
+
+
+def test_unconfirmed_historical_timing_is_retried_and_does_not_hide_other_results(monkeypatch):
+    condition = "0x" + "b" * 64
+    row = {"condition_id": condition, "current_size": 0, "status": "CLOSED"}
+    activity = {condition: [{"type": "MERGE", "size": Decimal("2")}]}
+
+    def offline(*args):
+        raise URLError("temporarily unavailable")
+
+    monkeypatch.setattr("tools.settlement.get_json", offline)
+    assert lookup([row], Decimal(".01"), activity=activity) == {}
+    with pytest.raises(URLError):
+        lookup([{**row, "current_size": 2, "status": "REDEEMABLE"}], Decimal(".01"))
 
 
 def leg(token, status, size, realized, cost):
@@ -103,6 +140,13 @@ def test_closed_residual_is_already_booked_and_opposite_winner_receives_final_pa
     loss = leg("under", "CLOSED", "0.0115", "-0.50", "0.0057")
     win = leg("over", "REDEEMABLE", "3", "0.10", "1.50")
     assert deals([loss, win])[0]["pnl"] == 11000
+
+
+def test_later_resolution_does_not_move_a_flat_market_without_activity_evidence():
+    result = deals([leg("under", "CLOSED", "0", "0.67", "0")])[0]
+    assert result["closed"] == 150
+    assert result["pnl"] == 6700
+    assert "settled" not in result
 
 
 def test_settlement_extends_graph_beyond_last_trade_and_sets_losing_mood():

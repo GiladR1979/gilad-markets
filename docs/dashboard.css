@@ -1088,6 +1088,13 @@ select,
   font-size: 0.69rem;
   color: #586b81;
 }
+.deal-booking {
+  margin-top: 5px;
+  text-align: right;
+  color: #586b81;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
 #rows .empty {
   grid-column: 1 / -1;
 }
@@ -1442,8 +1449,11 @@ dialog p {
   .chart-wrap {
     height: 177px;
   }
+  .section-bar .select {
+    min-width: 0;
+  }
   .section-bar .select select {
-    max-width: 158px;
+    max-width: 100%;
   }
   .pagination {
     font-size: 0.78rem;

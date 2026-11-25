@@ -6,16 +6,17 @@
     <meta name="theme-color" content="#082e29" />
     <meta
       name="description"
-      content="Closed and settled market profits, ranked-buy results and the deal ledger for Gilad’s Polymarket trading account."
+      content="Closed and settled returns, bot results and the deal ledger for Gilad’s Polymarket trading account."
     />
     <title>האם הגלעד מליונר? · Gilad Markets</title>
     <link rel="icon" href="mark.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="dashboard.css?v=deal-apy" />
+    <link rel="stylesheet" href="dashboard.css?v=close-times" />
     <script src="comments.js" defer></script>
-    <script src="deal-cards.js?v=crash-end" defer></script>
+    <script src="deal-cards.js?v=close-times" defer></script>
+    <script src="deal-performance.js" defer></script>
     <script src="deal-apy.js?v=money-weighted" defer></script>
     <script src="apy-card.js?v=money-weighted" defer></script>
-    <script src="dashboard.js?v=money-weighted" defer></script>
+    <script src="dashboard.js?v=account-scope" defer></script>
   </head>
   <body>
     <a class="skip" href="#performance">Skip to performance</a>
@@ -46,20 +47,20 @@
       <section class="stats" aria-label="Performance summary">
         <article class="stat">
           <div class="stat-top">
-            <span>Reported P&amp;L</span
+            <span>Account P&amp;L</span
             ><span class="glyph" data-icon="wallet"></span>
           </div>
           <div class="big" id="total">—</div>
-          <p id="ruleSummary">All methods</p>
+          <p id="ruleSummary">All account activity</p>
         </article>
         <article class="stat">
           <div class="stat-top">
-            <span>Latest method P&amp;L</span
+            <span>Latest tagged P&amp;L</span
             ><span class="glyph gold" data-icon="layers"></span>
           </div>
           <div class="big" id="latest">—</div>
           <p>
-            <span id="methodName">Current method</span> <b>·</b>
+            <span id="methodName">Tagged release</span> <b>·</b>
             <span id="methodCount">— deals</span>
           </p>
         </article>
@@ -77,9 +78,9 @@
         <label class="select"
           ><span class="visually-hidden">Performance and ledger scope</span
           ><select id="scope">
-            <option value="all">All methods</option>
+            <option value="all" selected>Entire account</option>
             <option value="verified">Ledger-matched bot</option>
-            <option value="method" selected>Latest method</option>
+            <option value="method">Latest tag</option>
           </select></label
         >
       </div>
@@ -91,7 +92,7 @@
           <div class="panel-head">
             <div>
               <h3>Cumulative profit</h3>
-              <p>Closed results and provisional losses</p>
+              <p>Includes observed losses and later adjustments</p>
             </div>
             <div class="ranges" role="group" aria-label="Chart date range">
               <button type="button" data-days="7" aria-pressed="false">
@@ -177,9 +178,9 @@
               </p>
               <p>
                 The money-weighted return accounts for each deposit or
-                withdrawal on its transfer date. The method, date range and
-                ledger filters select the trades. Funding covers the whole
-                account and excludes trading and settlement proceeds. The APY
+                withdrawal on its transfer date. The scope and ledger filters
+                select trades that closed in the chosen date range. Funding
+                covers the whole account and excludes trading and settlement proceeds. The APY
                 expresses the return over a 365-day year with compounding. Short
                 periods can produce extreme annualized values.
               </p>
@@ -303,9 +304,11 @@
       <p>
         Each deal groups all outcomes held in one market. It counts as closed
         when every balance falls below 0.01 shares or Polymarket confirms the
-        final payouts. For positions held at settlement, we use the later of the
-        published market close and the last position event. All deal times are
-        shown in your local time zone.
+        final payouts. Where the trade history reconciles, the close time shows
+        when the position reached dust, exited, or settled. Otherwise the card
+        uses the reported close. A later redemption or residual booking can
+        update the final P&amp;L. The card shows later bookings separately when
+        their timing is known. All deal times use your local time zone.
       </p>
       <h3>How is profit calculated?</h3>
       <p>
@@ -327,15 +330,21 @@
       </p>
       <h3>When is a loss shown?</h3>
       <p>
-        The ledger and cumulative chart date a losing deal to the first recorded
-        price that met the 99% rule while the combined position was losing. The
-        cumulative chart attributes the deal’s reported P&amp;L to that time.
-        The blue chart on the deal card ends at the first observed crash. The
-        card also shows the actual close or latest mark. Losses without a
-        recorded 99% drop use their close time.
+        The ledger dates a losing deal to the first recorded 99% drop while the
+        combined position was losing. Its blue chart stops there. The cumulative
+        chart records the measured loss at that point and any difference at the
+        close or latest mark. If the amount at the drop is unknown, the chart
+        records the P&amp;L at the close or latest mark. A market counts once
+        within a chart period, including when it has multiple P&amp;L changes.
       </p>
-      <h3>Which deals used the latest method?</h3>
-      <p id="methodNotes">Reading the deployed method…</p>
+      <h3>Which deals belong to each view?</h3>
+      <p>
+        Entire account includes bot and manual activity. Ledger-matched bot
+        includes markets whose purchases reconcile to the bot’s execution
+        ledger across all deployments. The tagged view includes only deals
+        attributable to the latest numbered release tag.
+      </p>
+      <p id="methodNotes">Reading the tagged release…</p>
       <h3>What do the deal charts show?</h3>
       <p>
         The blue line estimates P&amp;L from account cash flows and historical
