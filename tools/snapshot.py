@@ -1,6 +1,7 @@
 """Publishable closed-market performance from public positions and read-only entry evidence."""
 
 import argparse
+import bisect
 import collections
 import json
 import re
@@ -31,7 +32,7 @@ def number(value):
     return n
 
 
-def release_tag(repository, gh):
+def release_tags(repository, gh):
     result = subprocess.run(
         [gh, "api", "--paginate", "--slurp", f"repos/{repository}/tags?per_page=100"],
         check=True,
@@ -47,14 +48,78 @@ def release_tag(repository, gh):
     ]
     if not tags:
         raise ValueError("No numbered release tag found")
-    tag = max(tags, key=lambda item: item[0])[1]
-    commit = tag["commit"]["sha"]
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    ordered = [
+        (t["name"], t["commit"]["sha"])
+        for _, t in sorted(tags, key=lambda item: item[0])
+    ]
+    if any(not re.fullmatch(r"[0-9a-f]{40}", sha) for _, sha in ordered):
         raise ValueError("Invalid tagged commit")
-    return tag["name"], commit
+    return ordered
 
 
-def release_and_entries(path, tagged_commit, *, include_tag_status=False):
+def release_tag(repository, gh):
+    return release_tags(repository, gh)[-1]
+
+
+def includes_commit(tagged, deployed, repository, gh, checkout):
+    if not re.fullmatch(r"[0-9a-f]{7,40}", deployed):
+        raise ValueError("Invalid deployment commit")
+    if checkout:
+        result = subprocess.run(
+            ["git", "-C", checkout, "merge-base", "--is-ancestor", tagged, deployed],
+            check=False,
+            capture_output=True,
+            timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if result.returncode in (0, 1):
+            return result.returncode == 0
+    result = subprocess.run(
+        [
+            gh,
+            "api",
+            "--cache",
+            "24h",
+            "--jq",
+            ".status",
+            f"repos/{repository}/compare/{tagged}...{deployed}?per_page=1",
+        ],
+        check=False,
+        capture_output=True,
+        timeout=30,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    if result.returncode and b"HTTP 404" in result.stderr:
+        # A host-only commit may be absent on GitHub. It cannot establish a
+        # new boundary without evidence, but an existing period continues.
+        return False
+    result.check_returncode()
+    status = result.stdout.decode().strip()
+    if status not in {"identical", "ahead", "behind", "diverged"}:
+        raise ValueError("Unknown commit comparison")
+    return status in {"identical", "ahead"}
+
+
+def activation(item):
+    return item.get("maintenance", {}).get("created_at", item["manifest"]["created_at"])
+
+
+def tag_periods(history, tags, includes=None):
+    """Open a period at the first deployment of the tag or a following commit."""
+    periods = {}
+    index = 0
+    for tag, sha in tags:  # numeric order; bundled tags can share a boundary
+        for i in range(index, len(history)):
+            manifest = history[i]["manifest"]
+            deployed = manifest["source_commit"]
+            if deployed == sha or (includes and includes(sha, deployed)):
+                periods[tag] = (activation(history[i]), manifest["artifact_id"])
+                index = i
+                break
+    return periods
+
+
+def period_entries(path, tags, includes=None):
     with sqlite3.connect(
         path.resolve().as_uri() + "?mode=ro", uri=True, timeout=3
     ) as db:
@@ -74,30 +139,9 @@ def release_and_entries(path, tagged_commit, *, include_tag_status=False):
             for row in db.execute("SELECT body FROM rn2_release_history")
         ]
 
-        def activated(item):
-            return item.get("maintenance", {}).get(
-                "created_at", item["manifest"]["created_at"]
-            )
-
-        history.sort(key=activated)
+        history.sort(key=activation)
         if history[-1]["activation_id"] != release["activation_id"]:
             raise ValueError("Deployment history and current activation disagree")
-        windows, method = [], "Tagged release"
-        for index, item in enumerate(history):
-            if item["manifest"]["source_commit"] != tagged_commit:
-                continue
-            begin = activated(item)
-            end = (
-                activated(history[index + 1])
-                if index + 1 < len(history)
-                else float("inf")
-            )
-            windows.append((begin, end))
-            label = re.fullmatch(
-                r"rn2-([a-z0-9-]+)-\d{8}-[a-f0-9]+", item["manifest"]["artifact_id"]
-            )
-            if label:
-                method = label[1].replace("-", " ").capitalize()
         rows = db.execute("""
             SELECT e.body, o.condition, a.action,
                    a.action_id, a.prepared_at, p.body
@@ -107,38 +151,46 @@ def release_and_entries(path, tagged_commit, *, include_tag_status=False):
             LEFT JOIN rn2_pairs p ON p.pair_id=CASE json_extract(a.action,'$.kind')
                 WHEN 'enter_pair' THEN a.action_id ELSE json_extract(a.action,'$.pair_id') END
             WHERE json_extract(e.body,'$.side')='BUY'
-        """)
-        sizes = collections.defaultdict(int)
-        latest = collections.defaultdict(int)
-        for body, condition, action_body, action_id, prepared, pair_body in rows:
-            execution, action = json.loads(body), json.loads(action_body)
-            if condition != execution["condition"] or condition != action["condition"]:
-                raise ValueError("Execution condition mismatch")
-            key = condition, execution["token"]
-            qty = execution["quantity"]
-            if type(qty) is not int or qty <= 0:
-                raise ValueError("Invalid confirmed buy quantity")
-            sizes[key] += qty
-            if pair_body:
-                pair = json.loads(pair_body)
-                parent = (
-                    action_id if action["kind"] == "enter_pair" else action["pair_id"]
-                )
-                if (
-                    pair["pair_id"] != parent
-                    or pair["condition"] != condition
-                    or execution["token"] not in pair["tokens"]
-                ):
-                    raise ValueError("Pair attribution mismatch")
-                if prepared >= pair["created_at"] and any(
-                    begin <= pair["created_at"] < end for begin, end in windows
-                ):
-                    latest[key] += qty
-        start = windows[0][0] if windows else None
-        entries = release["wallet"], method, start, sizes, latest
-        if include_tag_status:
-            return (*entries, release["manifest"]["source_commit"] == tagged_commit)
-        return entries
+        """).fetchall()
+    periods = tag_periods(history, tags, includes)
+    names = list(periods)
+    boundaries = [periods[name][0] for name in names]
+    sizes = collections.Counter()
+    purchases = {name: collections.Counter() for name in names}
+    for body, condition, action_body, action_id, prepared, pair_body in rows:
+        execution, action = json.loads(body), json.loads(action_body)
+        if condition != execution["condition"] or condition != action["condition"]:
+            raise ValueError("Execution condition mismatch")
+        key = condition, execution["token"]
+        qty = execution["quantity"]
+        if type(qty) is not int or qty <= 0:
+            raise ValueError("Invalid confirmed buy quantity")
+        sizes[key] += qty
+        if pair_body:
+            pair = json.loads(pair_body)
+            parent = action_id if action["kind"] == "enter_pair" else action["pair_id"]
+            if (
+                pair["pair_id"] != parent
+                or pair["condition"] != condition
+                or execution["token"] not in pair["tokens"]
+            ):
+                raise ValueError("Pair attribution mismatch")
+            index = bisect.bisect_right(boundaries, pair["created_at"]) - 1
+            if prepared >= pair["created_at"] and index >= 0:
+                purchases[names[index]][key] += qty
+    return release["wallet"], sizes, periods, purchases
+
+
+def method_label(artifact):
+    label = re.fullmatch(r"rn2-([a-z0-9-]+)-\d{8}-[a-f0-9]+", artifact)
+    return label[1].replace("-", " ").capitalize() if label else "Tagged release"
+
+
+def release_and_entries(path, tagged_commit, *, include_tag_status=False):
+    wallet, sizes, periods, purchases = period_entries(path, [("tag", tagged_commit)])
+    start, artifact = periods.get("tag", (None, ""))
+    entries = wallet, method_label(artifact), start, sizes, purchases.get("tag", {})
+    return (*entries, start is not None) if include_tag_status else entries
 
 
 def fetch_positions(wallet, state):
@@ -276,8 +328,28 @@ def reconcile_positions(rows):
     return tokens.values()
 
 
+def belongs_to_period(legs, sizes, begin, purchases):
+    # Callers have already reconciled lifetime sizes to every provider leg.
+    return begin is not None and all(
+        number(r["first_entry_at"]) >= begin
+        and purchases.get((r["condition_id"], r["token_id"]), 0)
+        == sizes[(r["condition_id"], r["token_id"])]
+        for r in legs
+    )
+
+
 def build(
-    rows, method, start, sizes, latest, now, *, history_jobs=None, settlements=None
+    rows,
+    method,
+    start,
+    sizes,
+    latest,
+    now,
+    *,
+    history_jobs=None,
+    settlements=None,
+    tag=None,
+    prior_periods=None,
 ):
     markets = collections.defaultdict(list)
     for row in reconcile_positions(rows):
@@ -325,17 +397,8 @@ def build(
             if material:
                 last = max(last, settlement.closed)
         is_bot = all(matched(r, sizes) for r in legs)
-        is_latest = (
-            start is not None
-            and is_bot
-            and all(
-                number(r["first_entry_at"]) >= start
-                and matched(r, latest)
-                and latest[(r["condition_id"], r["token_id"])]
-                == sizes[(r["condition_id"], r["token_id"])]
-                for r in legs
-            )
-        )
+
+        is_latest = is_bot and belongs_to_period(legs, sizes, start, latest)
         # Only these public market/result fields cross the publication boundary.
         deal = dict(
             market=title,
@@ -346,6 +409,13 @@ def build(
             verified=is_bot,
             dust=not material and any(number(r["current_size"]) > 0 for r in legs),
         )
+        if is_latest and tag:
+            deal["releaseTag"] = tag
+        elif is_bot:
+            for name, (begin, purchases) in (prior_periods or {}).items():
+                if belongs_to_period(legs, sizes, begin, purchases):
+                    deal["releaseTag"] = name
+                    break
         if settlement and material:
             deal["settled"] = True
         if marked:
@@ -382,10 +452,22 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
         from bankroll_flows import FundingHistoryUnavailable, funding_for_period
         from deal_history import activity_by_market, populate
         from opening_equity import attach_opening_equity
-    tag, commit = release_tag(repository, gh)
-    wallet, method, start, sizes, latest, tag_active = release_and_entries(
-        ledger, commit, include_tag_status=True
+    tags = release_tags(repository, gh)
+    tag, commit = tags[-1]
+    # Rolling attribution is enabled starting with Successful8.
+    rolling = [(name, sha) for name, sha in tags if int(name[10:]) >= 8]
+    source_path = Path(__file__).resolve().parents[1] / ".local" / "release-source.txt"
+    checkout = (
+        source_path.read_text(encoding="utf-8").strip()
+        if source_path.is_file()
+        else None
     )
+    wallet, sizes, periods, purchases = period_entries(
+        ledger,
+        rolling or [(tag, commit)],
+        lambda base, head: includes_commit(base, head, repository, gh, checkout),
+    )
+    start, artifact = periods.get(tag, (None, ""))
     rows = fetch_positions(wallet, "CLOSED") + fetch_positions(wallet, "OPEN")
     if not rows:
         raise ValueError("Trading account history unavailable")
@@ -396,12 +478,18 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
     history_jobs = []
     result = build(
         rows,
-        method,
+        method_label(artifact),
         start,
         sizes,
-        latest,
+        purchases.get(tag, {}),
         int(time.time()),
         history_jobs=history_jobs,
+        tag=tag,
+        prior_periods={
+            name: (begin, purchases[name])
+            for name, (begin, _) in periods.items()
+            if name != tag
+        },
         settlements=lookup(
             rows,
             DUST,
@@ -441,7 +529,7 @@ def snapshot(ledger, repository, gh, *, price_cache=None):
             result["externalFlows"] = [
                 flow for flow in flows if first < flow["at"] <= last
             ]
-    return {**result, "tag": tag, "commit": commit, "tagActive": tag_active}
+    return {**result, "tag": tag, "commit": commit, "tagActive": start is not None}
 
 
 if __name__ == "__main__":

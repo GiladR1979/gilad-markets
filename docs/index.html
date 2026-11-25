@@ -341,8 +341,11 @@
       <p>
         Entire account includes bot and manual activity. Ledger-matched bot
         includes markets whose purchases reconcile to the bot’s execution
-        ledger across all deployments. The tagged view includes only deals
-        attributable to the latest numbered release tag.
+        ledger across all deployments. Starting with Successful8, each numbered
+        tag covers its deployment and later commits until the next numbered tag
+        reaches the bot. A deal belongs to the period in which its bot pairs
+        opened, even if it closes under a later tag. Markets with purchases
+        from multiple periods stay in the broader views.
       </p>
       <p id="methodNotes">Reading the tagged release…</p>
       <h3>What do the deal charts show?</h3>

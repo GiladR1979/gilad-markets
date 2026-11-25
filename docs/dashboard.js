@@ -94,12 +94,21 @@ function updateSummary() {
   setMoney("total", sum(results));
   setMoney("latest", sum(latest));
   if (data.methodSince === null) byId("latest").textContent = "Pending";
-  const priorTag = data.tagActive === false && data.methodSince != null;
-  byId("methodName").textContent = priorTag
-    ? data.tag + " · Past deployment"
-    : data.tag;
-  byId("scope").querySelector('[value="method"]').textContent =
-    "Tag · " + data.tag;
+  byId("methodName").textContent = data.tag;
+  const scope = byId("scope");
+  const selection = scope.value;
+  scope.querySelector('[value="method"]').textContent = "Tag · " + data.tag;
+  for (const option of scope.querySelectorAll("[data-prior-tag]")) option.remove();
+  const priorTags = [...new Set(results.map((r) => r.releaseTag))]
+    .filter((tag) => tag && tag !== data.tag)
+    .sort((a, b) => Number(b.slice(10)) - Number(a.slice(10)));
+  for (const tag of priorTags) {
+    const option = new Option("Tag · " + tag, tag);
+    option.dataset.priorTag = "";
+    scope.add(option);
+  }
+  if ([...scope.options].some((option) => option.value === selection))
+    scope.value = selection;
   byId("methodCount").textContent =
     latest.length + (latest.length === 1 ? " deal" : " deals");
   byId("count").textContent = results.length.toLocaleString("en-US");
@@ -116,17 +125,13 @@ function updateSummary() {
       ? data.tag +
         " (" +
         data.commit.slice(0, 7) +
-        ") has no matching deployment in the bot ledger yet."
+        ") is waiting for its first deployment. Trades stay in the preceding period until that deployment."
       : data.tag +
         " (" +
         data.commit.slice(0, 7) +
-        ") is the newest numbered release tag. Its " +
-        data.method.toLowerCase() +
-        " method was activated on " +
+        ") began a release period on " +
         dateAt(data.methodSince, { dateStyle: "medium", timeStyle: "short" }) +
-        " UTC. " +
-        (priorTag ? "The bot now runs another deployment. " : "") +
-        "Every outcome’s lifetime purchases must match confirmed bot buys originating from pairs opened under this release, within the API’s displayed share precision.";
+        " UTC. Following deployments count toward this tag until the next numbered Successful release starts trading.";
 }
 
 function renderOutcomes(rows) {
@@ -409,7 +414,10 @@ function changeScope() {
   if (!data) return;
   const select = byId("scope");
   const field = select.value;
-  scoped = field === "all" ? results : results.filter((r) => r[field]);
+  if (field === "all") scoped = results;
+  else if (field === "verified" || field === "method")
+    scoped = results.filter((r) => r[field]);
+  else scoped = results.filter((r) => r.releaseTag === field);
   byId("ledgerDesc").textContent =
     `${select.selectedOptions[0].textContent} · ${scoped.length} markets · Newest first · Your local time`;
   draw();

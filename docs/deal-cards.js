@@ -254,11 +254,11 @@ function renderDealCard(deal) {
   const card = span("li", "deal", "");
   const top = span("div", "deal-top", "");
   const heading = span("div", "deal-heading", "");
-  const attribution = deal.method
+  const attribution = deal.releaseTag ?? (deal.method
     ? data.tag
     : deal.verified
       ? "Bot ledger"
-      : "Account history";
+      : "Account history");
   heading.append(
     span(
       "div",
